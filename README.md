@@ -27,6 +27,11 @@ Then open <http://localhost:8000/ui> (API key box: `change-me-demo-key`, broker:
 API docs: <http://localhost:8000/docs>. Without a `.env` the API and UI answer 401/503.
 `docker compose down` stops it; `down -v` also deletes the Postgres volume.
 
+Port 8000 busy, or a second copy of the repo on the same machine? Compose names the project after
+the directory, so two clones in same-named directories share containers and a volume. Give the
+second one its own name and port: `APP_PORT=18000 docker compose -p kalpi-second up --build -d`
+(then use `localhost:18000`). Never run `down -v` on a project whose data you want to keep.
+
 ### Try it with curl (Paper broker)
 
 ```bash

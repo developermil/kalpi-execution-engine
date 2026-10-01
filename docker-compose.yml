@@ -21,7 +21,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://kalpi:kalpi@db:5432/kalpi
     ports:
-      - "8000:8000"
+      - "${APP_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
