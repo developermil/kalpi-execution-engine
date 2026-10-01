@@ -136,5 +136,10 @@
     "closed": "2026-10-01T23:10+05:30",
     "evidence": "PASS all rows: I1-I4,I7 20/20 seeds (test_faults, 100 legs each) + I8 5/5 restart seeds; I5 token absent from events/outbox/DB bytes/DEBUG logs on seeds 0,7,19 + test_storage/test_api no-secret tests pass; I6 idempotency test passes; planner coverage 100% (79 stmts); duplicate orders at Paper 0 (max 1 per tag, every seed)",
     "status": "done"
+  },
+  "G2": {
+    "closed": "2026-10-02T01:12+05:30",
+    "evidence": "PASS: contract 5/5 adapters x 12 cases green; sixth broker = 1 file (tests/contract/_dummy/brokers/dummy.py), 0 core edits, listed in /v1/brokers; adapter LOC 199/198/200/200/197 (all <=200)",
+    "status": "done"
   }
 }
