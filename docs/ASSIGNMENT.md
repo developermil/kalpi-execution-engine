@@ -10,18 +10,18 @@ Take a desired portfolio instruction set, authenticate with the user's broker, e
 
 | ID | Requirement (from the PDF) | Where satisfied (fill at the end) |
 |----|----------------------------|-----------------------------------|
-| R1 | Support **at least 5 major Indian brokers** (Zerodha, Fyers, AngelOne, Groww, Upstox/Indiabulls) incl. authentication | |
-| R2 | Standardised **Adapter Pattern**; adding a 6th broker needs minimal code change | |
-| R3 | If an open-source normaliser is used: written **justification** + able to explain its mechanics | |
-| R4 | **First-time portfolio** (no holdings): BUY the listed stocks/quantities | |
-| R5 | **Rebalance**: no delta calculation needed; payload gives explicit SELL / BUY (New) / REBALANCE (Adjust, buy or sell qty change) | |
-| R6 | **Notification** after execution summarising executed trades and failed orders (mock webhook / WS / email / console OK) | |
-| R7 | Backend: **Python + FastAPI** | |
-| R8 | **Docker**: Dockerfile + docker-compose.yml | |
-| R9 | Best practices for trading systems: modularity, separation of concerns, **robust handling of API rate limits and failed trades** | |
-| R10 | Bonus: basic **frontend** (upload target portfolio -> connect broker -> click execute -> view results) | |
-| R11 | Public GitHub repo; **README** with: setup + Docker commands; architecture choices + how rebalance logic works; justification of 3rd-party trading libs | |
-| R12 | Delivered within 24h | |
+| R1 | Support **at least 5 major Indian brokers** (Zerodha, Fyers, AngelOne, Groww, Upstox/Indiabulls) incl. authentication | `brokers/{zerodha,upstox,fyers,angelone,groww}.py`; auth in each file (README "How each authenticates"); contract suite 5 x 12 cases against respx mocks. NOT live-tested (experimental). |
+| R2 | Standardised **Adapter Pattern**; adding a 6th broker needs minimal code change | `brokers/base.py` port + auto-discovery `registry.py`; dummy 6th broker = 1 file, passes contract + listed in `/v1/brokers` (`tests/contract/test_contract.py`); `docs/ADDING_A_BROKER.md`. |
+| R3 | If an open-source normaliser is used: written **justification** + able to explain its mechanics | README "Why own adapters" (D1, D25): no normaliser or SDK used; mechanics of each broker auth explained there. |
+| R4 | **First-time portfolio** (no holdings): BUY the listed stocks/quantities | `mode=FIRST_TIME` (all BUY, empty holdings required, V1): `planner/`, `tests/unit/test_planner.py`, `tests/engine/test_executor.py`, compose test, `scripts/demo.sh`/`ui_smoke.py`. |
+| R5 | **Rebalance**: no delta calculation needed; payload gives explicit SELL / BUY (New) / REBALANCE (Adjust, buy or sell qty change) | Explicit SELL/BUY/REBALANCE payload, sells -> barrier -> buys: `execution/executor.py`; `tests/engine/test_faults.py` (20 seeds), `tests/unit/test_restart_faults.py`. |
+| R6 | **Notification** after execution summarising executed trades and failed orders (mock webhook / WS / email / console OK) | `notify/` transactional outbox -> HMAC-signed webhook + console; demo receiver `/mock/webhook`; `tests/engine/test_notifier.py`; compose test and `scripts/demo.sh` receive it. |
+| R7 | Backend: **Python + FastAPI** | `src/kalpi_engine/main.py`, `api/` (FastAPI, async). |
+| R8 | **Docker**: Dockerfile + docker-compose.yml | `Dockerfile`, `docker-compose.yml` (app + Postgres); `make itest` (3 passed) and `scripts/demo.sh` exit 0 on the compose stack. |
+| R9 | Best practices for trading systems: modularity, separation of concerns, **robust handling of API rate limits and failed trades** | Layered modules (README); `execution/limits.py` sliding-window limiter + `Retry-After` + RETRY_SAFE-only retry; write-ahead legs, tag reconciliation, run lease; chaos tests. Gap: adaptive concurrency halving (B8) not built. |
+| R10 | Bonus: basic **frontend** (upload target portfolio -> connect broker -> click execute -> view results) | `frontend/index.html` at `/ui` (minimal: JSON textarea, no file upload); `scripts/ui_smoke.py`, `docs/img/`; manual Chrome click-through on Paper reported by the owner (G3). |
+| R11 | Public GitHub repo; **README** with: setup + Docker commands; architecture choices + how rebalance logic works; justification of 3rd-party trading libs | `README.md` (setup + Docker, architecture, rebalance logic, library justification). GitHub repo is currently PRIVATE: must be made public before submission. |
+| R12 | Delivered within 24h | Pace tracked in `docs/progress.md` / git history; judged by the submitter at release (G4). |
 
 ## Evaluation lens (inferred from Problem 2's criteria; treat as the likely rubric)
 1. Systems thinking: correctness under failure, rate limits, partial fills, no double orders.

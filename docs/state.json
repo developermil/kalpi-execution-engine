@@ -139,6 +139,12 @@
     "started": "2026-10-01T23:19+05:30",
     "status": "done"
   },
+  "E3": {
+    "closed": "2026-10-02T02:33+05:30",
+    "evidence": "scripts/demo.sh rc=0 on compose stack (Paper REBALANCE run COMPLETED, signed webhook received); README.md has quick start, mermaid, module map, rebalance example, failure table, D1 justification, regulatory notes, tested-vs-mocked, limitations, R1-R12 table; docs/ASSIGNMENT.md 12/12 rows filled; make check 373 passed. Flag: GitHub repo is PRIVATE (R11 needs public)",
+    "started": "2026-10-02T02:26+05:30",
+    "status": "done"
+  },
   "G0": {
     "closed": "2026-10-01T20:07+05:30",
     "evidence": "Row1 PASS: spike 5/5 FILLED via real port in 0.007s, port unchanged by A5. Row2 ADJUST x5 (blocking UNVERIFIED: fyers 3, upstox 3, zerodha 4, groww 4, angelone 5; none >6): F1 steps 2-3 recorded per broker in BROKERS.md triage and enforced by C1-C5 done_when (experimental=true, live_tested=false, SDK constants only, never wrap SDK place_order). Row3 ADJUST: elapsed H4:37 since first commit 15:31 (>H4:30): D1 cut to F12 minimal page, est 90->45m (D37). Verdict ADJUST, actions done (D22/D33)",
