@@ -83,6 +83,12 @@
     "started": "2026-10-01T22:48+05:30",
     "status": "done"
   },
+  "C0": {
+    "closed": "2026-10-01T23:59+05:30",
+    "evidence": "tests/contract/test_contract.py 33 passed: Paper green on 12 cases (meta, login, checksum, holdings->sellable_qty, place_ok payload assert, 429, auth expired, reject, 200-with-error, timeout->AmbiguousSubmit, tag hit/miss, resolve+UNKNOWN_SYMBOL); fixture missing login/place_ok/error_200/tag_hit/tag_miss -> case fails naming the hook; empty or wrong payload expectation fails; dummy HTTP broker (_dummy/brokers/dummy.py + _dummy/fixtures/dummy.py, respx, signed login w/ independent checksum vector) discovered by registry + fixture glob and passes all 12 cases with zero shared-file edits. InstrumentResolver: 1 fetch under 10 concurrent first uses, failed load not cached, Registry.startup warms + survives failure (4 tests). make check 295 passed; make itest 3 passed",
+    "started": "2026-10-01T23:49+05:30",
+    "status": "done"
+  },
   "E2": {
     "closed": "2026-10-01T23:33+05:30",
     "evidence": "make itest rc=0 x3 on fresh compose stack (down -v first): 3 passed in ~5-9s - FIRST_TIME 2 legs FILLED + signed webhook received at /mock/webhook; REBALANCE SELL,SELL->BUY all FILLED, no run.resumed; dup Idempotency-Key 202 then 200 same run_id, diff body 422 IDEMPOTENCY_KEY_REUSED; Postgres: 1 runs row per key, raw duplicate INSERT rejected by unique constraint. Found+fixed event-seq race on Postgres (D44; was 115s stall). make check 258 passed",

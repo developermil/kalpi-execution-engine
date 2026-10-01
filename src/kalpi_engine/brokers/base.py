@@ -113,6 +113,10 @@ class BrokerAdapter(ABC):
     async def cancel_order(self, s: BrokerSession, broker_order_id: str) -> None:
         raise NotImplementedError(f"{self.meta.id} does not support cancel")
 
+    async def startup(self) -> None:
+        """Called once at app start (e.g. load the instrument master, D35). Default: nothing."""
+        return None
+
     async def aclose(self) -> None:
         return None
 

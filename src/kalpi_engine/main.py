@@ -34,6 +34,7 @@ def create_app(settings: Settings | None = None, registry: Registry | None = Non
                 asyncio.create_task(notifier.run_forever(stop)),
                 asyncio.create_task(runtime.resume_sweeper().run_forever(stop)),
                 asyncio.create_task(runtime.recheck_forever(stop)),
+                asyncio.create_task(registry.startup()),  # instrument masters, once (D35)
             ]
             app.state.background = tasks
             yield

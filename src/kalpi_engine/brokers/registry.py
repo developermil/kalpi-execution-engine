@@ -2,12 +2,14 @@
 
 import importlib
 import inspect
+import logging
 import pkgutil
 from functools import lru_cache
 
 from kalpi_engine import brokers
 from kalpi_engine.brokers.base import BrokerAdapter, BrokerMeta
 
+log = logging.getLogger(__name__)
 _NOT_ADAPTERS = {"base", "registry", "instruments"}
 
 
@@ -50,6 +52,14 @@ class Registry:
         if broker_id not in self._instances:
             self._instances[broker_id] = self._classes[broker_id]()
         return self._instances[broker_id]
+
+    async def startup(self) -> None:
+        """Warm every adapter once. A failure is logged, not fatal: that adapter retries lazily."""
+        for broker_id in self.ids():
+            try:
+                await self.get(broker_id).startup()
+            except Exception:
+                log.warning("startup of broker %s failed; will retry on first use", broker_id)
 
     async def aclose(self) -> None:
         for adapter in self._instances.values():
