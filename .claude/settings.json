@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python scripts/beads.py:*)",
+      "Bash(python3 scripts/beads.py:*)",
+      "Bash(uv run:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv add:*)",
+      "Bash(make:*)",
+      "Bash(docker compose:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git log:*)",
+      "Bash(git worktree:*)",
+      "Bash(curl -s:*)",
+      "Bash(curl -sf:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./**/*.pem)",
+      "Read(./.venv/**)",
+      "Read(./**/__pycache__/**)",
+      "Read(./data/**)",
+      "Bash(git push --force:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(rm -rf /*)"
+    ]
+  }
+}

@@ -1,0 +1,505 @@
+# Beads = frozen plan definition. Mutable status lives in docs/state.json (managed by scripts/beads.py).
+# Fields: id, phase, kind(task|gate), priority(P0 must|P1 should|P2 nice), blocked_by[], est(min),
+#         model(suggested), what, done_when (measurable), if_fails (scenario id from PLAN.md), reqs (R-IDs), spec (pointer)
+# Phases: A foundation+feasibility | B core engine | C broker adapters | D frontend | E hardening+release | S stretch
+
+# ───────────────────────── PHASE A: Foundation + feasibility ─────────────────────────
+[[bead]]
+id = "A1"
+phase = "A"
+kind = "task"
+priority = "P0"
+blocked_by = []
+est = 40
+model = "sonnet (5 parallel broker-researcher subagents)"
+title = "Research the 5 broker APIs from primary docs"
+what = "Spawn one broker-researcher subagent per broker (zerodha, upstox, fyers, angelone, groww). Each writes docs/brokers/<id>.md (<=70 lines). Then fill the comparison table in docs/BROKERS.md. Check auth flow, holdings, funds, place order, order status/book, tag field, instrument identifier + master file, rate limits, static IP, MPP, error shapes."
+done_when = "5 files exist in docs/brokers/; BROKERS.md table has no empty cell (each cell has a URL or UNVERIFIED); count of UNVERIFIED cells recorded in evidence."
+if_fails = "F1"
+reqs = ["R1", "R2"]
+spec = "SPEC §4, DECISIONS D1/D13"
+
+[[bead]]
+id = "A2"
+phase = "A"
+kind = "task"
+priority = "P0"
+blocked_by = []
+est = 40
+model = "sonnet"
+title = "Scaffold repo, Docker, compose, CI-lite"
+what = "uv project (Python 3.12), src layout from SPEC §1, FastAPI app factory + /healthz + /readyz, ruff, pytest(+asyncio, respx), mypy on domain, Makefile (check, test, run, up), multi-stage non-root Dockerfile, docker-compose (app + postgres with healthcheck, depends_on service_healthy), .env.example, .gitignore, pre-commit optional."
+done_when = "`docker compose up --build -d` then `curl -sf localhost:8000/healthz` returns 200 within 90s; `make check` (ruff + pytest) exits 0."
+if_fails = "F10"
+reqs = ["R7", "R8"]
+spec = "SPEC §1, §8"
+
+[[bead]]
+id = "A3"
+phase = "A"
+kind = "task"
+priority = "P0"
+blocked_by = ["A2"]
+est = 30
+model = "sonnet"
+title = "Domain models, enums and error taxonomy"
+what = "Pydantic v2 models and enums from SPEC §3, request/response schemas for preview/execute, error classes from SPEC §4, tag generator, instruction validation helpers. No I/O."
+done_when = "pytest tests/unit/test_domain.py passes: tag is <=20 alphanumeric chars and deterministic; invalid payloads rejected (missing side on REBALANCE, qty<=0, LIMIT without price); mypy clean on domain/."
+if_fails = "F11"
+reqs = ["R4", "R5"]
+spec = "SPEC §2-§4"
+
+[[bead]]
+id = "A4"
+phase = "A"
+kind = "task"
+priority = "P0"
+blocked_by = ["A3"]
+est = 50
+model = "sonnet"
+title = "Adapter port, HttpBrokerAdapter base, auto-discovery registry, Paper broker"
+what = "BrokerAdapter ABC + BrokerMeta + RateLimits; HttpBrokerAdapter with shared httpx client, timeouts and classify(); pkgutil auto-discovery registry; PaperBroker (in-memory holdings/funds, deterministic fills, fault-injection hooks: 429, timeout-after-accept, reject by symbol, latency)."
+done_when = "GET /v1/brokers lists 'paper'; a registry test proves that dropping a new file in brokers/ registers it without editing other files; PaperBroker place_order/get_order/find_order_by_tag unit tests pass."
+if_fails = "F11"
+reqs = ["R2", "R9"]
+spec = "SPEC §4"
+
+[[bead]]
+id = "A5"
+phase = "A"
+kind = "task"
+priority = "P0"
+blocked_by = ["A4"]
+est = 40
+model = "sonnet"
+title = "Feasibility spike: FIRST_TIME end-to-end in-process on Paper"
+what = "Minimal planner (FIRST_TIME only) + naive sequential executor + Paper broker; script scripts/spike.py runs a 5-stock first-time portfolio and prints legs. Throwaway-quality but must exercise the real port."
+done_when = "`uv run python scripts/spike.py` prints 5 legs FILLED in <5s; elapsed time since A2 start recorded in evidence."
+if_fails = "F11"
+reqs = ["R4"]
+spec = "SPEC §5"
+
+[[bead]]
+id = "G0"
+phase = "A"
+kind = "gate"
+priority = "P0"
+blocked_by = ["A1", "A5"]
+est = 10
+model = "opus"
+title = "GATE 0 — Feasibility (see PLAN.md Gate table)"
+what = "Evaluate gate G0 with measured values; STOP if ADJUST/ABORT."
+done_when = "Gate table filled with measured values and verdict PASS."
+if_fails = "F1"
+reqs = []
+spec = "PLAN §Gates"
+
+# ───────────────────────── PHASE B: Core engine ─────────────────────────
+[[bead]]
+id = "B1"
+phase = "B"
+kind = "task"
+priority = "P0"
+blocked_by = ["G0"]
+est = 45
+model = "sonnet"
+title = "Planner: validation V1-V10 and sells-then-buys legs"
+what = "Pure functions: validate(payload, holdings, instrument_resolver) -> list[Violation]/warnings; plan(payload) -> ordered OrderIntents (sell phase then buy phase). Covers FIRST_TIME, SELL, BUY(new), REBALANCE(buy/sell)."
+done_when = "tests/unit/test_planner.py: >=25 cases incl. each V-rule, duplicate symbols, over-sell, REBALANCE without side, FIRST_TIME with holdings; coverage of planner/ >=95%."
+if_fails = "F11"
+reqs = ["R4", "R5"]
+spec = "SPEC §2, §5"
+
+[[bead]]
+id = "B2"
+phase = "B"
+kind = "task"
+priority = "P0"
+blocked_by = ["G0"]
+est = 50
+model = "sonnet"
+title = "Persistence: models, repo, encryption, audit events"
+what = "SQLAlchemy 2 async models for SPEC §7, repo functions (insert run with idempotency uniqueness, update leg status, append event, outbox ops), Fernet encryption for session tokens, create_all at startup (Alembic is stretch S3)."
+done_when = "Unit tests on sqlite pass; duplicate (user_id, idempotency_key) returns the existing run; token round-trips and ciphertext != plaintext; no token appears in logs (test with caplog)."
+if_fails = "F10"
+reqs = ["R9"]
+spec = "SPEC §7"
+
+[[bead]]
+id = "B3"
+phase = "B"
+kind = "task"
+priority = "P0"
+blocked_by = ["G0"]
+est = 40
+model = "sonnet"
+title = "Rate limiter and retry policy"
+what = "Async token bucket (per broker+session) from RateLimits, Retry-After handling, jittered exponential backoff, bounded concurrency, adaptive concurrency halving after repeated 429, retry only for RETRY_SAFE class."
+done_when = "Tests with fake clock: 10/s bucket never exceeds 10 calls in any 1s window over 200 calls; Retry-After honoured; AMBIGUOUS and REJECTED are never retried."
+if_fails = "F2"
+reqs = ["R9"]
+spec = "DECISIONS D10"
+
+[[bead]]
+id = "B4"
+phase = "B"
+kind = "task"
+priority = "P0"
+blocked_by = ["B1", "B2", "B3"]
+est = 90
+model = "opus (design) then sonnet"
+title = "Executor: phases, write-ahead, reconcile, auth-expiry, crash-resume"
+what = "Implement SPEC §5 completely: write-ahead SUBMITTING, tag, reconcile-by-tag, no auto-resubmit on ambiguity, polling to terminal/timeout, phase barrier + halt_on_sell_failure, AuthExpired handling, startup resume."
+done_when = "Engine tests on Paper pass for: happy first-time, happy rebalance, timeout-after-accept (no duplicate order, leg adopted), timeout-not-accepted (UNKNOWN, not resubmitted), 429 storm, partial rejects, auth expiry mid-run, process 'crash' between SUBMITTING and SUBMITTED then resume."
+if_fails = "F3"
+reqs = ["R4", "R5", "R9"]
+spec = "SPEC §5, DECISIONS D9"
+
+[[bead]]
+id = "B5"
+phase = "B"
+kind = "task"
+priority = "P0"
+blocked_by = ["B2"]
+est = 45
+model = "sonnet"
+title = "Notifier: outbox, webhook with HMAC, console, mock receiver"
+what = "Outbox rows written with run finalisation; background worker delivers webhook (HMAC-SHA256 header), console sink, exponential backoff, dead-letter flag; in-app POST /mock/webhook verifies signature and stores last N."
+done_when = "Tests: payload matches SPEC §6; signature verifies; consumer down -> retries then dead-letter without affecting run status; consumer back -> delivered exactly once per success."
+if_fails = "F8"
+reqs = ["R6"]
+spec = "SPEC §6"
+
+[[bead]]
+id = "B6"
+phase = "B"
+kind = "task"
+priority = "P0"
+blocked_by = ["B4", "B5"]
+est = 60
+model = "sonnet"
+title = "API layer: sessions, preview, execute (202), status, errors, API key"
+what = "Routers per SPEC §2, X-API-Key dependency, Idempotency-Key handling, uniform error envelope, OpenAPI examples, background launch of executor."
+done_when = "httpx ASGI tests: preview shows plan without calling place_order; execute returns 202 and run reaches terminal state; same Idempotency-Key returns same run; 401/409/422 error shapes match SPEC."
+if_fails = "F11"
+reqs = ["R4", "R5", "R6", "R7"]
+spec = "SPEC §2"
+
+[[bead]]
+id = "B7"
+phase = "B"
+kind = "task"
+priority = "P0"
+blocked_by = ["B6"]
+est = 40
+model = "sonnet"
+title = "Fault-injection suite (the money-safety proof)"
+what = "Randomised run: 100 legs with 20% 429, 5% ambiguous timeouts, 10% rejects, seeded RNG; assert invariants after every run (see PLAN §Invariants). Repeat for 20 seeds."
+done_when = "20/20 seeds pass: zero duplicate orders at the Paper broker, every leg terminal or UNKNOWN, notification lists every non-filled leg."
+if_fails = "F3"
+reqs = ["R9"]
+spec = "PLAN §Invariants"
+
+[[bead]]
+id = "G1"
+phase = "B"
+kind = "gate"
+priority = "P0"
+blocked_by = ["B7"]
+est = 10
+model = "opus"
+title = "GATE 1 — Engine correct on Paper"
+what = "Evaluate gate G1."
+done_when = "Gate table filled with measured values and verdict PASS."
+if_fails = "F3"
+reqs = []
+spec = "PLAN §Gates"
+
+# ───────────────────────── PHASE C: Broker adapters ─────────────────────────
+[[bead]]
+id = "C0"
+phase = "C"
+kind = "task"
+priority = "P0"
+blocked_by = ["G1"]
+est = 40
+model = "sonnet"
+title = "Shared adapter contract suite + InstrumentResolver base"
+what = "tests/contract/ parametrised over every adapter found in the registry; each broker supplies ONLY tests/contract/fixtures/<id>.py (respx mocks for: success, 429, auth expired, reject, timeout, tag lookup hit/miss). Suite auto-discovers fixtures by filename so parallel adapter work never edits a shared file. InstrumentResolver base with cached master file and daily refresh."
+done_when = "Suite runs green against Paper; a new broker needs only brokers/<id>.py + tests/contract/fixtures/<id>.py and zero edits to shared test files (proved by a dummy fixture)."
+if_fails = "F11"
+reqs = ["R1", "R2"]
+spec = "SPEC §4"
+
+[[bead]]
+id = "C1"
+phase = "C"
+kind = "task"
+priority = "P0"
+blocked_by = ["C0", "A1"]
+est = 60
+model = "sonnet"
+title = "Adapter: Zerodha (Kite Connect)"
+what = "OAuth redirect login URL + request_token->access_token exchange, holdings, funds, order place/status/orderbook (tag lookup), instrument resolver. Per docs/brokers/zerodha.md."
+done_when = "Contract suite green for zerodha; file <=200 LOC; every endpoint has a source comment; live smoke result recorded (or 'not live-tested')."
+if_fails = "F1"
+reqs = ["R1", "R2"]
+spec = "docs/brokers/zerodha.md"
+
+[[bead]]
+id = "C2"
+phase = "C"
+kind = "task"
+priority = "P0"
+blocked_by = ["C0", "A1"]
+est = 60
+model = "sonnet"
+title = "Adapter: Upstox"
+what = "OAuth2 auth-code login, holdings, funds, order place/status/book, ISIN-based instrument_key resolver from instruments file. Per docs/brokers/upstox.md."
+done_when = "Contract suite green for upstox; <=200 LOC; live smoke result recorded."
+if_fails = "F1"
+reqs = ["R1", "R2"]
+spec = "docs/brokers/upstox.md"
+
+[[bead]]
+id = "C3"
+phase = "C"
+kind = "task"
+priority = "P0"
+blocked_by = ["C0", "A1"]
+est = 60
+model = "sonnet"
+title = "Adapter: Fyers"
+what = "Auth-code login with appIdHash, holdings, funds, order place/status/orderbook, NSE:SYMBOL-EQ resolver. Per docs/brokers/fyers.md."
+done_when = "Contract suite green for fyers; <=200 LOC; live smoke result recorded."
+if_fails = "F1"
+reqs = ["R1", "R2"]
+spec = "docs/brokers/fyers.md"
+
+[[bead]]
+id = "C4"
+phase = "C"
+kind = "task"
+priority = "P0"
+blocked_by = ["C0", "A1"]
+est = 60
+model = "sonnet"
+title = "Adapter: AngelOne (SmartAPI)"
+what = "Credentials+TOTP login (secrets used once, never stored), JWT session, holdings, funds, order place/status/book, symboltoken resolver from scrip master. Per docs/brokers/angelone.md."
+done_when = "Contract suite green for angelone; <=200 LOC; TOTP/PIN never persisted (test asserts); live smoke result recorded."
+if_fails = "F1"
+reqs = ["R1", "R2"]
+spec = "docs/brokers/angelone.md"
+
+[[bead]]
+id = "C5"
+phase = "C"
+kind = "task"
+priority = "P0"
+blocked_by = ["C0", "A1"]
+est = 50
+model = "sonnet"
+title = "Adapter: Groww"
+what = "API key+secret checksum (or TOTP) token flow, holdings, margin, POST /order/create with order_reference_id as tag, order detail. Per docs/brokers/groww.md."
+done_when = "Contract suite green for groww; <=200 LOC; live smoke result recorded."
+if_fails = "F1"
+reqs = ["R1", "R2"]
+spec = "docs/brokers/groww.md"
+
+[[bead]]
+id = "C6"
+phase = "C"
+kind = "task"
+priority = "P0"
+blocked_by = ["C1", "C2", "C3", "C4", "C5"]
+est = 30
+model = "sonnet"
+title = "'Sixth broker' proof + ADDING_A_BROKER.md"
+what = "A test-only dummy adapter (<=80 LOC) added as a single new file passes the contract suite and appears in GET /v1/brokers with no edits outside brokers/. Write docs/ADDING_A_BROKER.md (checklist, <=1 page)."
+done_when = "Test passes; `git diff --stat` for the proof touches exactly one non-test file under brokers/."
+if_fails = "F11"
+reqs = ["R2"]
+spec = "SPEC §4"
+
+[[bead]]
+id = "G2"
+phase = "C"
+kind = "gate"
+priority = "P0"
+blocked_by = ["C6"]
+est = 10
+model = "opus"
+title = "GATE 2 — Adapters"
+what = "Evaluate gate G2."
+done_when = "Gate table filled with measured values and verdict PASS."
+if_fails = "F1"
+reqs = []
+spec = "PLAN §Gates"
+
+# ───────────────────────── PHASE D: Frontend (bonus) ─────────────────────────
+[[bead]]
+id = "D1"
+phase = "D"
+kind = "task"
+priority = "P1"
+blocked_by = ["G1"]
+est = 90
+model = "sonnet"
+title = "Static UI: upload -> connect -> preview -> execute -> results"
+what = "frontend/index.html + vanilla JS served at /ui. Upload JSON/CSV, choose broker (form rendered from GET /v1/brokers), connect (OAuth redirect or credentials), preview table with warnings, Execute button with confirm, live polling of legs with status colours, show notification payload."
+done_when = "Manual smoke on Paper completes first-time and rebalance flows with zero console errors; screenshots saved to docs/img/; a Playwright smoke test is optional."
+if_fails = "F12"
+reqs = ["R10"]
+spec = "DECISIONS D14"
+
+[[bead]]
+id = "G3"
+phase = "D"
+kind = "gate"
+priority = "P1"
+blocked_by = ["D1"]
+est = 10
+model = "opus"
+title = "GATE 3 — UI smoke"
+what = "Evaluate gate G3."
+done_when = "Gate table filled with measured values and verdict PASS."
+if_fails = "F12"
+reqs = []
+spec = "PLAN §Gates"
+
+# ───────────────────────── PHASE E: Hardening + release ─────────────────────────
+[[bead]]
+id = "E1"
+phase = "E"
+kind = "task"
+priority = "P1"
+blocked_by = ["G1"]
+est = 30
+model = "sonnet"
+title = "Observability: structured logs, redaction, request/run ids"
+what = "structlog JSON logs with run_id/leg_id, secret-redaction processor (tokens, TOTP, passwords, API keys), /readyz checks DB + registry."
+done_when = "Test: logs from a full run contain run_id and none of the secret fixtures; /readyz 503 when DB down."
+if_fails = "F11"
+reqs = ["R9"]
+spec = "DECISIONS D11"
+
+[[bead]]
+id = "E2"
+phase = "E"
+kind = "task"
+priority = "P0"
+blocked_by = ["B6", "E1"]
+est = 40
+model = "sonnet"
+title = "Compose-level integration test on Postgres"
+what = "Test that boots the compose stack and drives first-time + rebalance + duplicate Idempotency-Key + webhook receipt over HTTP against the Paper broker."
+done_when = "`make itest` exits 0 on a clean machine state; includes Postgres-specific constraint (idempotency uniqueness) check."
+if_fails = "F10"
+reqs = ["R8", "R9"]
+spec = "SPEC §2"
+
+[[bead]]
+id = "E3"
+phase = "E"
+kind = "task"
+priority = "P0"
+blocked_by = ["G2", "G3"]
+est = 60
+model = "sonnet"
+title = "README.md (the submission's front door)"
+what = "Setup with exact Docker commands; architecture diagram (mermaid); module map; rebalance logic walk-through with a worked example; failure handling table; D1 justification (why not OpenAlgo/SDKs, mechanics of each adapter's auth); Regulatory notes (static IP, 2FA, MPP); what is live-tested vs mocked; limitations + next steps; how to add a 6th broker."
+done_when = "Fresh reader can run the Paper demo using only README commands; every R1-R11 row in docs/ASSIGNMENT.md has a 'Where satisfied' entry."
+if_fails = "F11"
+reqs = ["R3", "R11"]
+spec = "docs/ASSIGNMENT.md"
+
+[[bead]]
+id = "E4"
+phase = "E"
+kind = "task"
+priority = "P0"
+blocked_by = ["E2", "E3"]
+est = 30
+model = "sonnet"
+title = "Clean-room dry run"
+what = "Fresh clone into a temp dir, copy .env.example, `docker compose up --build`, run the README demo (curl or UI), tear down."
+done_when = "Healthy in <=3 min from clone; demo reproduces the documented output; no manual fixes needed (list any fix made)."
+if_fails = "F10"
+reqs = ["R8", "R11"]
+spec = "README"
+
+[[bead]]
+id = "E5"
+phase = "E"
+kind = "task"
+priority = "P0"
+blocked_by = ["E4"]
+est = 30
+model = "opus (verifier agent, fresh context)"
+title = "Fresh-agent requirements audit"
+what = "Run /audit: verifier agent with no build context checks R1-R12 against the repo and README, runs tests, reports MISSING/WEAK/OK."
+done_when = "Zero MISSING; WEAK items fixed or explicitly listed under README 'Limitations'."
+if_fails = "F11"
+reqs = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11"]
+spec = "docs/ASSIGNMENT.md"
+
+[[bead]]
+id = "G4"
+phase = "E"
+kind = "gate"
+priority = "P0"
+blocked_by = ["E5"]
+est = 10
+model = "opus"
+title = "GATE 4 — Release"
+what = "Evaluate gate G4, push to public GitHub, verify the public URL clones and runs."
+done_when = "Gate PASS; public repo URL recorded in evidence."
+if_fails = "F10"
+reqs = ["R11", "R12"]
+spec = "PLAN §Gates"
+
+# ───────────────────────── STRETCH (only after G4 and only with time left) ─────────────────────────
+[[bead]]
+id = "S1"
+phase = "S"
+kind = "task"
+priority = "P2"
+blocked_by = ["G4"]
+est = 40
+model = "sonnet"
+title = "TARGET_STATE mode: compute the delta"
+what = "Mode TARGET_STATE takes target quantities, reads holdings, emits SELL/BUY/REBALANCE instructions through the same planner. Pure function + property tests."
+done_when = "Property test: applying the produced deltas to holdings yields exactly the target; zero-delta symbols produce no orders."
+if_fails = "F11"
+reqs = []
+spec = "docs/ASSIGNMENT.md A1"
+
+[[bead]]
+id = "S2"
+phase = "S"
+kind = "task"
+priority = "P2"
+blocked_by = ["G4"]
+est = 40
+model = "sonnet"
+title = "SSE stream of run events to the UI"
+what = "GET /v1/executions/{id}/stream (Server-Sent Events) replacing UI polling."
+done_when = "UI shows legs updating without polling; reconnect resumes from last event id."
+if_fails = "F12"
+reqs = []
+spec = "SPEC §7 events"
+
+[[bead]]
+id = "S3"
+phase = "S"
+kind = "task"
+priority = "P2"
+blocked_by = ["G4"]
+est = 40
+model = "sonnet"
+title = "Alembic migrations"
+what = "Replace create_all with Alembic baseline migration."
+done_when = "`alembic upgrade head` on empty Postgres yields identical schema to models; compose runs migrations on start."
+if_fails = "F10"
+reqs = []
+spec = "SPEC §7"

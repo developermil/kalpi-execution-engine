@@ -1,0 +1,17 @@
+.env
+.env.local
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+data/
+*.pem
+*.sqlite
+*.db
+node_modules/
+.DS_Store
+# keep docs/state.json committed (task state is part of the plan trail)
