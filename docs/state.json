@@ -4,5 +4,11 @@
     "evidence": "5/5 docs/brokers/*.md; BROKERS.md 13x5 table, 0 empty, every cell URL or UNVERIFIED; UNVERIFIED cells=12/65 (zerodha 1, upstox 0, fyers 6, angelone 2, groww 3); +30 cells with partial (dagger) UNVERIFIED sub-items",
     "started": "2026-10-01T15:46+05:30",
     "status": "done"
+  },
+  "A2": {
+    "closed": "2026-10-01T19:45+05:30",
+    "evidence": "compose up --build: /healthz 200 in 2s after start, app runs as non-root uid 'app', db healthy; make check exit 0 (ruff, mypy domain, 2 tests pass); Dockerfile pins --workers 1",
+    "started": "2026-10-01T19:36+05:30",
+    "status": "done"
   }
 }
