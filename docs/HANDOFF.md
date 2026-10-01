@@ -1,14 +1,13 @@
 # HANDOFF (overwrite via /handoff; keep <=15 lines)
-Current bead: none in progress. Phase A 6/6, B 8/11 (B6 done), C 0/8. 635/1640 planned min done.
-Last green commit: 72afcd1 docs D40-D43 (code: 4cb8919 feat(B6), make check 233 passed)
-Next 3 steps (order D43, encoded in beads deps): 1) /next-bead B7 (fault-injection I1-I8)
-  2) /gate G1  3) /next-bead E2 (compose + Postgres), then C0
-Open risks / human: pace judged vs 13:45 deadline (D42), not H-hours. S* kept (blocked behind G4).
+Current bead: none in progress. A 6/6, B 9/11 (B7 + gate G1 PASS), C 0/8. Ready: E2 (P0), B8, D1, E1.
+Last green commit: 1a95894 docs(G1) (code: 407093e test(B7), make check 258 passed, ~2.5 min)
+Next 3 steps (order D43): 1) /next-bead E2 (compose + Postgres)  2) /next-bead C0  3) continue C* adapters
+Open risks / human: pace vs 13:45 deadline (D42). make check is now ~156s; the B7 chaos suite takes ~104s
+  (20 seeds x 100 legs) - if it hurts, consider a `slow` marker (needs human OK; do not drop seeds silently).
 Learned (not in SPEC):
-- Service layer = src/kalpi_engine/service.py Runtime: load_session (token+extra encrypted as one JSON blob),
-  make_executor/make_reconciler, launch(run), recheck_forever, resume_sweeper(); lifespan in main.py starts
-  notifier + resume sweep + recheck loop; app.state.runtime. Settings gained poll_interval_s, recheck_interval_s.
-- API tests: tests/unit/test_api.py (TestClient, real time, poll_interval 0.05); _stranded_run() helper builds
-  crashed/UNKNOWN runs; share one Registry across app instances so Paper accounts survive a "restart".
-- Error envelope + handlers in api/errors.py (ApiError); 422 multi-error code = VALIDATION_FAILED, schema = VALIDATION_ERROR.
-- README must include docs/LIMITATIONS.md items (E3 `what` updated).
+- Chaos harness: tests/engine/test_faults.py ChaosPaper(PaperBroker) assigns faults per tag from seeded RNG
+  (reproducible despite concurrency); I3 probed in place_order by reading legs from DB; PRICES monkeypatched.
+- I8 randomised: tests/unit/test_restart_faults.py strands runs via `update(Leg).where(Leg.tag == ...)`;
+  OrderIntent.leg_id is NOT the DB Leg.id (matching on it silently updates 0 rows).
+- `pytest -p no:logging` removes caplog -> test_storage errors at setup; not a real failure.
+- G1 I5 measured by scanning events/outbox/DB bytes/DEBUG logs for the Paper token on seeds 0,7,19: absent.
