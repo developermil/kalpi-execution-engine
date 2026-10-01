@@ -16,7 +16,7 @@ Docs: https://kite.trade/docs/connect/v3/ (user, orders, portfolio, exceptions, 
 - **13. Sandbox**: UNVERIFIED (none found in official docs).
 
 ## Defensive defaults (remaining BLOCKING items, DECISIONS D19)
-- **Auth header, base host, `variety` list**: F1 step 2. Take these from the official `kiteconnect` SDK, either by wrapping it with `asyncio.to_thread` for this broker only or by mirroring its constants. Until a real call succeeds, send only `variety=regular`.
+- **Auth header, base host, `variety` list**: F1 step 2. Copy these constants from the official `kiteconnect` SDK source into our httpx adapter. Never wrap the SDK's `place_order` or any other order call (D25). Until a real call succeeds, send only `variety=regular`.
 - **Full status list**: COMPLETE -> FILLED, REJECTED -> REJECTED, CANCELLED -> CANCELLED, OPEN and interim states (VALIDATION PENDING, OPEN PENDING, ...) -> OPEN. PARTIAL when `filled_quantity` > 0 on a non-terminal status. Any other string becomes non-terminal and, at timeout, UNKNOWN. Never FILLED, never resubmitted.
 - **F1 step 3**: ship with `experimental=true`, contract tests and a README disclosure unless live-tested.
 

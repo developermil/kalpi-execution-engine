@@ -23,6 +23,16 @@ Format: **Choice** · why · cost/trade-off · revisit if. Changing a decision =
 | D17 | Regulatory awareness baked into adapter metadata (`requires_static_ip`, `daily_2fa`) and README | Ignore regulation |
 | D18 | **G0 counts BLOCKING UNVERIFIED items only** (token exchange, holdings qty, place-order + delivery code, status vocab, tag, rate limits, instrument master). Sandbox, pricing, MPP %, secondary error shapes, regulatory nuance and funds (`get_funds` may return None) are NON-BLOCKING | Count every UNVERIFIED cell (rewards vague notes, punishes honest ones) |
 | D19 | **Defensive mapping for unverified facts**: unknown status is never FILLED and never resubmitted (it becomes UNKNOWN); sellable qty = the most conservative field; conflicting rate limits mean we use the lowest; unknown tag limit means the shorter value | Optimistic guesses; block the adapter entirely |
+| D20 | **Run lease** (`runs.lease_owner`, `lease_until`, claimed by conditional `UPDATE ... WHERE lease_until < now`, renewed every TTL/3) + leg compare-and-set `PLANNED->SUBMITTING`; uvicorn pinned to `--workers 1` (plan-critic #1) | Postgres advisory lock (not portable to SQLite); trust single process |
+| D21 | **Unresolved sells are failures at the barrier**: only `FILLED` counts as OK; `UNKNOWN`/`OPEN`/`PARTIAL` (and rejects) count for `halt_on_sell_failure`. `UNKNOWN` legs are re-checked by tag at T+60s and at finalise; a late hit updates the leg and emits `execution.updated` (plan-critic #2). Amends D7 | Treat "terminal or timed out" as done; never re-check |
+| D22 | **G0 closes on PASS, or ADJUST with F1 actions recorded per broker; never ABORT**. BLOCKING threshold: <=2 PASS, 3–6 ADJUST (so fyers and upstox, 3 each, are ADJUST). Verdict is recorded only by `/gate` after A5 (plan-critic #3) | G0 requires PASS (deadlocks the plan) |
+| D23 | **Explicit transport classification table** (SPEC §4): connect-phase errors + 429 RETRY_SAFE; read/write timeouts, read/protocol errors, 5xx AMBIGUOUS; 401/403 TokenException/AG8001 AUTH_EXPIRED; one test per class (plan-critic #4). Amends D9.3 | "Connect error before send" prose only |
+| D24 | **MARKET orders are allowed on every broker**; each contract fixture asserts the outgoing payload (Zerodha `market_protection=-1`, AngelOne `price=0`, Upstox `slice=false`). `BrokerMeta.market_order_verified=false` where MPP handling is UNVERIFIED (Groww): preview warns (V11), no hard reject (plan-critic #5, amended by human) | Hard-reject MARKET on Groww; default all orders to LIMIT |
+| D25 | **Never wrap an official SDK's `place_order`** (or any order call); at most copy SDK constants/enums/paths into our httpx adapter. Supersedes the D1 fallback "SDK in `asyncio.to_thread`" and F1 step 2 (plan-critic #6, amended by human) | Wrap SDK in `to_thread` (unmockable by respx; hides timeout-before/after-send) |
+| D26 | **`Holding.sellable_qty`** computed per adapter from the most conservative field(s); V4 validates against it (plan-critic #7) | Validate against total `quantity` |
+| D27 | **Validate before insert; idempotency keyed on `(user_id, key)` + `request_hash`**: 4xx creates no run; same key + different body = 422 `IDEMPOTENCY_KEY_REUSED` (plan-critic #8) | Insert first, persist failed runs |
+| D28 | **Explicit leg->run status table** (SPEC §3); summary has a count per leg status incl. `partial`; PARTIAL appears in `executed` (filled qty) and `failed` (remainder) (plan-critic #9) | Implicit "counts add up" |
+| D29 | **`BrokerMeta.experimental` + `live_tested`** exposed via `GET /v1/brokers`; ambiguous orders are adopted **only by tag**; order-book heuristics are report-only (`possible_matches`, never adopted) (plan-critic #12) | Heuristic adoption (`matched_heuristically`) |
 
 ## D1 — Broker integration approach (the one the reviewers will probe)
 - **Choice:** own thin adapters on `httpx`.
@@ -30,23 +40,23 @@ Format: **Choice** · why · cost/trade-off · revisit if. Changing a decision =
 - **Why not OpenAlgo:** AGPL-3.0 (network copyleft) is a poor fit for a commercial platform; it is a standalone server with its own auth/DB/symbol-mapping store, adding a hop and a second source of truth; its normalisation can hide the order states we must surface. Studying its approach is fine; copying code is not.
 - **Cost:** more code written by us; endpoint details must be verified against official docs (bead A1); we cannot live-test all five brokers (static IP, daily 2FA, funded accounts).
 - **Mitigation:** contract tests built from documented request/response shapes; clear `UNVERIFIED` flags; live smoke test on one broker the builder actually has; Paper broker for the demo.
-- **Fallback cascade (failure F1):** official SDK wrapped in `asyncio.to_thread` for that broker → ship adapter marked `experimental` with contract tests → drop to Paper only and say so.
+- **Fallback cascade (failure F1, amended by D25):** copy constants/enums/paths from the official SDK source into our httpx adapter (**never wrap the SDK's `place_order` or any order call**) → ship adapter marked `experimental` with contract tests → drop to Paper only and say so.
 - **Revisit if:** >10 brokers needed, or Kalpi already runs a broker-gateway.
 
 ## D3 — Where does execution run?
-- **Choice:** asyncio tasks in the API process; every state change is committed to Postgres *before* the broker call (write-ahead). On startup, non-terminal runs are resumed: legs in `SUBMITTING` are reconciled against the broker order book (by tag) before anything is re-sent.
+- **Choice:** asyncio tasks in the API process; every state change is committed to Postgres *before* the broker call (write-ahead). On startup, non-terminal runs are resumed: legs in `SUBMITTING` are reconciled against the broker order book (by tag) before anything is re-sent. A run is executed only by the holder of its lease (D20); the container runs one uvicorn worker.
 - **Trade-off:** single process, no horizontal scale, no priority queues. Acceptable for a 24h build and honest in README; a queue (Celery/Arq) becomes the next step. The state model already supports it because workers only read/write DB rows.
 
 ## D7 — Sells before buys
 - Sells free cash (and margin) so buys do not fail on funds. Phase barrier: wait for sells to reach a terminal state (or timeout) before buys.
 - **Do not assume** same-day usability of sale proceeds: treat as broker-specific; offer optional funds pre-check via the adapter's `get_funds`.
-- `halt_on_sell_failure` (default `false`): when `true`, skip buys if any sell failed. Default continues because rebalance legs are usually independent; the result lists everything.
+- `halt_on_sell_failure` (default `false`): when `true`, skip buys if any sell failed. A sell left `UNKNOWN`/`OPEN`/`PARTIAL` counts as failed (D21). Default continues because rebalance legs are usually independent; the result lists everything.
 
 ## D9 — Never double-trade (money safety)
 1. Leg state `SUBMITTING` committed before the HTTP call.
 2. Each leg gets a deterministic **tag** (<=20 chars, derived from run_id+leg index) sent as the broker's tag/reference field where supported.
-3. Error classes: `RETRY_SAFE` (429, connect error before send), `REJECTED` (4xx validation), `AMBIGUOUS` (read timeout, 5xx after send).
-4. `AMBIGUOUS` → poll `find_order_by_tag` (3 tries, backoff). Found → adopt. Not found → leg `UNKNOWN`, **no auto-resubmit**, surfaced in notification.
+3. Error classes: `RETRY_SAFE` (429, connect error before send), `REJECTED` (4xx validation), `AMBIGUOUS` (read timeout, 5xx after send). Exact exception table: SPEC §4 (D23).
+4. `AMBIGUOUS` → poll `find_order_by_tag` (3 tries, backoff). Found → adopt. Not found → leg `UNKNOWN`, **no auto-resubmit**, surfaced in notification; re-checked by tag at T+60s and at finalise (D21). Never adopted heuristically (D29).
 - **Cost:** some legs need a human; that is the correct failure mode for real money.
 
 ## D10 — Rate limits
