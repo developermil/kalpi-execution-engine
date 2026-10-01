@@ -251,7 +251,10 @@ async def append_event(
     now: datetime,
     leg_id: str | None = None,
 ) -> int:
-    """Next per-run seq; UNIQUE(run_id, seq) rejects a racing writer."""
+    """Next per-run seq. Concurrent legs of one run race here, so the run row is locked first:
+    on Postgres (READ COMMITTED) max+1 would otherwise collide on UNIQUE(run_id, seq) and kill
+    the executor task (D44). SQLite ignores FOR UPDATE but already serialises writers."""
+    await s.execute(select(Run.id).where(Run.id == run_id).with_for_update())
     last = await s.scalar(select(func.max(Event.seq)).where(Event.run_id == run_id))
     seq = (last or 0) + 1
     s.add(Event(run_id=run_id, seq=seq, leg_id=leg_id, ts=now, type=type_, payload_json=payload))

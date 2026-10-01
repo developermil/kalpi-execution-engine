@@ -1,0 +1,9 @@
+# Test-only overrides for `make itest` (throwaway values; never use in a real deployment).
+services:
+  app:
+    environment:
+      FERNET_KEY: "aXRlc3Qtb25seS1ub3QtYS1zZWNyZXQtMzJieXRlcyE="
+      API_KEYS: "itest:itest-key,other:other-key"
+      WEBHOOK_SECRET: "itest-webhook-secret"
+      DEFAULT_WEBHOOK_URL: "http://127.0.0.1:8000/mock/webhook"
+      POLL_INTERVAL_S: "0.2"

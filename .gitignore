@@ -15,3 +15,4 @@ data/
 node_modules/
 .DS_Store
 # keep docs/state.json committed (task state is part of the plan trail)
+.itest-app.log

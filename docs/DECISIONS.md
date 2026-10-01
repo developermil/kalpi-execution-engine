@@ -47,6 +47,7 @@ Format: **Choice** · why · cost/trade-off · revisit if. Changing a decision =
 | D41 | **OAuth login `state` kept in process memory** (human, B6): `state -> (user_id, broker, issued_at)`, single-use, 10 min TTL. Consequences, listed in README Known limitations (`docs/LIMITATIONS.md`): a restart during an OAuth login means restarting the login; only valid with one worker (already pinned by D20) | Persist states in a DB table |
 | D42 | **Pace is judged against the 13:45 submission deadline, not elapsed hours** (human, after B6): the G0 "Elapsed since start" row (H4:30 / H6:00) is stale and no longer applies; S* beads are kept (they stay blocked behind G4) | Drop S* at H6:00 |
 | D43 | **Bead order after B6: B7 -> /gate G1 -> E2 -> C0** (human), encoded as dependencies: E2 blocked_by G1, C0 blocked_by E2 | C0 first (plan order) |
+| D44 | **Event seq allocation locks the run row** (found by E2 on Postgres): `append_event` does `SELECT runs.id ... FOR UPDATE` before `max(seq)+1`. Concurrent legs of one run raced under READ COMMITTED -> UNIQUE(run_id,seq) violation killed the executor task; the lease sweeper resumed it ~60s later (no double orders, but a stall). SQLite serialises writers, so B7/G1 could not see it. E2 now asserts no `run.resumed` in healthy runs | Retry on IntegrityError; Postgres sequence per run; one shared global seq |
 
 ## D1 — Broker integration approach (the one the reviewers will probe)
 - **Choice:** own thin adapters on `httpx`.
