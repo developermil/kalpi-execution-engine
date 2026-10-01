@@ -1,9 +1,9 @@
-# PLAN v1 — Portfolio Trade Execution Engine (status: plan-critic review applied 2026-10-01; DRAFT until audit + commit)
+# PLAN v1 — Portfolio Trade Execution Engine (status: FROZEN 2026-10-01; plan-critic: 2 rounds applied)
 
 Task graph lives in `docs/beads.toml` (use `python scripts/beads.py ready|show|close`). This file holds the parts that are not tasks: gates, failure scenarios, insight tiers, invariants, schedule. Decisions: `docs/DECISIONS.md`. Contracts: `docs/SPEC.md`.
 
 ## Numbers
-- 35 beads = 27 tasks + 5 gates + 3 stretch. Non-stretch effort ≈ 1545 min (gates included); P0 ≈ 1415 min.
+- 36 beads = 28 tasks + 5 gates + 3 stretch. Non-stretch effort ≈ 1565 min (gates included); P0 ≈ 1415 min. B8 (P1) runs after G1 only if time allows.
 - **Critical path 695 min (11.6 h)** if independent beads run in parallel: A2→A3→A4→A5→G0→B2→B4a→B4b→B4c→B6→B7→G1→C6→G2→E3→E4→E5→G4.
 - Adapters are now off the critical path: C0 starts after A4, C1–C5 after C0+G0, in parallel with phase B; G1 still gates their merge (C6).
 - Sequential execution would be ~26 h: **parallelism is mandatory** (A1 research ‖ A2–A5; B1 ‖ B2 ‖ B3; C0→C1–C5 five-way ‖ phase B; D1 ‖ E1 after G1).
@@ -30,6 +30,8 @@ G0 closes on PASS, or ADJUST with the F1 actions recorded per broker; never ABOR
 
 Pre-assessment of the UNVERIFIED-items row only (A1, 2026-10-01; not a gate verdict): ADJUST for all five, i.e. fyers (3 blocking), upstox (3), zerodha (4), groww (4) and angelone (5). F1 actions: step 2 = copy constants/enums from the official SDK source, **never wrap the SDK's `place_order`** (D25); step 3 = ship `experimental=true` with contract tests + README disclosure and the D19 defensive defaults, unless live-tested. Zerodha ruled ADJUST by human 2026-10-01 (not re-researched).
 
+All gates (D33): PASS, or ADJUST with that row's actions done and recorded, closes the gate; ABORT stops and escalates.
+
 **G1 Engine correct on Paper** (after B7)
 | Check | Pass | Adjust | Abort |
 |---|---|---|---|
@@ -40,7 +42,7 @@ Pre-assessment of the UNVERIFIED-items row only (A1, 2026-10-01; not a gate verd
 **G2 Adapters** (after C6)
 | Check | Pass | Adjust | Abort |
 |---|---|---|---|
-| Contract suite green per adapter | 5/5 | 4/5 -> remaining flagged `experimental` (F1.3) | <=3/5 -> F1.4 and tell human immediately |
+| Contract suite green per adapter | 5/5 | 4/5 -> fix, or list the red adapter under README Limitations as contract-failing | <=3/5 -> F1.4 and tell human immediately |
 | Sixth-broker proof | 1 file, 0 other edits | 2–3 files -> refactor port | requires core edits -> redesign registry |
 | Adapter size | each <=200 LOC | 200–300 | >300 -> push logic into base class |
 
@@ -54,19 +56,19 @@ Pre-assessment of the UNVERIFIED-items row only (A1, 2026-10-01; not a gate verd
 |---|---|---|---|
 | Fresh clone `docker compose up --build` healthy | <=3 min | 3–6 min -> slim image/caching | fails -> F10 |
 | `make check` + `make itest` | green | flaky test -> fix root cause | red |
-| Audit R1–R11 | 0 MISSING | WEAK only -> list in README Limitations | any MISSING -> fix first |
+| Audit R1–R12 | 0 MISSING | WEAK only -> list in README Limitations | any MISSING -> fix first |
 | Public repo clones & runs from README alone | yes | typo fixes | no |
 
 ## Failure scenarios (numbered cascades: try cheapest first)
 | ID | Failure | Detect | Recovery cascade |
 |---|---|---|---|
 | F1 | Broker API can't be verified or adapter infeasible | A1 UNVERIFIED count; contract test can't be written | 1) re-run researcher using official docs + reading the official SDK source as reference · 2) copy constants/enums/paths from the official SDK into our httpx adapter; **never wrap the SDK's `place_order`** (D25) · 3) ship adapter `experimental=true` with contract tests + README disclosure · 4) fewer documented adapters + Paper, tell the human; **never claim live-tested** |
-| F2 | 429 / rate-limit storm | `RateLimited` events | 1) honour `Retry-After` · 2) jittered backoff · 3) halve concurrency for the session · 4) after 5 attempts mark leg `FAILED(RATE_LIMITED)`, continue others |
+| F2 | 429 / rate-limit storm | `RateLimited` events | 1) honour `Retry-After` · 2) jittered backoff · 3) halve concurrency for the session (P1, B8) · 4) after 5 attempts mark leg `FAILED(RATE_LIMITED)`, continue others |
 | F3 | Ambiguous submit (risk of duplicate order) | timeout/5xx after send | 1) `find_order_by_tag` ×3 with backoff · 2) `UNKNOWN`, **no resubmit**; if the broker lacks tag lookup, list order-book candidates (symbol+side+qty+time window) as `possible_matches` in the notification, **report-only, never adopted** (D29) · 3) re-check by tag at T+60s and at finalise; a late hit updates the leg and emits `execution.updated` (D21) |
 | F4 | Session expired mid-run | `AuthExpired` | 1) stop placing · 2) remaining legs `SKIPPED(AUTH_EXPIRED)` · 3) notify; user reconnects and starts a new run with a new key (resume endpoint is stretch) |
 | F5 | Insufficient funds / RMS reject | broker reject text | 1) leg `REJECTED(reason)` · 2) continue others · 3) preview warns if `get_funds` supported |
 | F6 | Order still OPEN at poll timeout | poll timeout | leave `OPEN`, report, never auto-cancel; an OPEN sell counts as a sell failure at the barrier (D21) |
-| F7 | Process crash mid-run | startup scan of non-terminal runs | 0) claim the run lease; skip if another worker holds it (D20) · 1) reconcile `SUBMITTING` legs by tag · 2) continue only `PLANNED` legs · 3) `UNKNOWN` for unresolvable |
+| F7 | Process crash mid-run | startup scan of non-terminal runs | 0) claim the run lease (startup + periodic sweep); skip if another worker holds it (D20, D30) · 1) reconcile `SUBMITTING` legs by tag (miss -> `UNKNOWN`, never resend) · 2) continue only `PLANNED` legs · 3) `UNKNOWN` for unresolvable |
 | F8 | Webhook consumer down | delivery errors | 1) outbox retry 1,2,4,8,16 s · 2) dead-letter flag · 3) result still on `GET /v1/executions/{id}` |
 | F9 | Market closed / holiday | V10 warning; broker reject | warn in preview; reject reported as `REJECTED(MARKET_CLOSED)`; no AMO in v1 |
 | F10 | Docker/compose breakage | `make up` / E4 fails | 1) healthchecks + `depends_on: service_healthy` · 2) pin base image/package versions · 3) SQLite profile for demo, Postgres documented |
@@ -80,7 +82,7 @@ Pre-assessment of the UNVERIFIED-items row only (A1, 2026-10-01; not a gate verd
 - **Does not apply:** Celery/Kafka, market-data streaming, portfolio optimisation, tax-lot/charges maths, derivatives/GTT, multi-tenant billing.
 
 ## Invariants (asserted by B7 after every randomised run)
-I1 at most one broker order per leg tag (incl. two concurrent resumers) · I2 no leg left in `PLANNED`/`SUBMITTING` at run end · I3 no buy leg submitted before every sell is resolved (terminal, `UNKNOWN` or timed out); `UNKNOWN`/`OPEN`/`PARTIAL` sells count as sell failures (D21) · I4 notification lists every non-filled leg (PARTIAL in both `executed` and `failed`); per-status counts add up to total · I5 no secret in logs/events · I6 same Idempotency-Key + same body → same run, no extra orders; different body → 422 · I7 run status is a pure function of leg statuses per the SPEC §3 table.
+I1 at most one broker order per leg tag (incl. two concurrent resumers and a lease lost mid-`place_order`) · I2 no leg left in `PLANNED`/`SUBMITTING`/`SUBMITTED` at run end · I3 no buy leg submitted before every sell is resolved (terminal, `UNKNOWN` or timed out); `UNKNOWN`/`OPEN`/`PARTIAL` sells count as sell failures (D21) · I4 notification lists every non-filled leg (PARTIAL in both `executed` and `failed`); per-status counts add up to total · I5 no secret in logs/events · I6 same Idempotency-Key + same body → same run, no extra orders; different body → 422 · I7 run status is a pure function of leg statuses per the SPEC §3 table.
 
 ## Execution strategy (token efficiency + compaction survival)
 1. State lives in files: `docs/state.json` (bead status), `docs/progress.md` (auto-appended on close), `docs/HANDOFF.md` (<=15 lines, via `/handoff`). Conversation is disposable.
@@ -108,3 +110,18 @@ Review run 2026-10-01 (plan-critic, 12 critiques). All 12 adopted, two with huma
 | 10 | MEDIUM: dependency errors | adopt | shorter path | E3←G2 only; E2 drops E1; C0←A4; C1–C5←C0+A1+G0; C6←G1 (G1 still gates merge) |
 | 11 | MEDIUM: fat or vague beads | adopt | F11 prevention | B4→B4a/B4b/B4c; C1–C5 est 90; C0 resolver base + login/checksum/payload fixtures; D1/E3 scripted `done_when` |
 | 12 | MEDIUM: `experimental` not wired; F3 heuristic contradicts D9 | adopt | honesty + money safety | D29 `experimental`/`live_tested` in `BrokerMeta` and `GET /v1/brokers`; F3 heuristic report-only (`possible_matches`) |
+
+Review run 2 2026-10-01 (`/audit plan`, plan-critic second pass, 10 critiques). All 10 adopted by the human; #15 kept minimal (`recheck_at` + integer `seq` only). This was the final plan-review round.
+
+| # | Critique | Verdict (adopt / reject) | Reason | Plan change |
+|---|---|---|---|---|
+| 13 | BLOCKER: lease does not fence writes; a tag miss on resumed `SUBMITTING` could resend | adopt | money safety; resend contradicts D9 | tag miss on `SUBMITTING` -> `UNKNOWN`, never resend; every leg/run UPDATE adds `AND runs.lease_owner=:me`; renew in its own task; B4c cases |
+| 14 | HIGH: a restart inside `LEASE_TTL_S` orphans the run (startup-only scan) | adopt | liveness | periodic sweeper re-claims after `lease_until`; B4c test |
+| 15 | HIGH: late reconcile is in-memory and races the finalise check | adopt | durability + no double adoption | D31: `legs.recheck_at` swept by worker, CAS on status; integer `events.seq`, latest in payload; nothing more (human) |
+| 16 | HIGH: B4b needs B5's outbox; B4a tests UNKNOWN sells before B4b creates UNKNOWN | adopt | dependency correctness | B4b blocked_by += B5; move the UNKNOWN-barrier case to B4b |
+| 17 | HIGH: R1 authentication untested at API level | adopt | R1 coverage | B6 done_when: login-url/callback (state/CSRF check, encrypted store, `expires_at`) and `POST /v1/sessions` |
+| 18 | MEDIUM: SPEC §5.6 forces `COMPLETED_WITH_FAILURES`, contradicting the §3 table; `SUBMITTED`/`OPEN` legs at auth expiry have no end state | adopt | I7 consistency | drop forced status; such legs -> `UNKNOWN`; I2 also covers `SUBMITTED` |
+| 19 | MEDIUM: G1/G2/G3 require PASS only (same deadlock as G0); G2 "flag experimental" moot; G4 audits R1–R11 | adopt | avoid gate deadlocks | allow ADJUST-with-actions as in D22; reword G2 adjust row; G4 row -> R1–R12 |
+| 20 | MEDIUM: 200-with-error bodies (AngelOne `status:false`, missing order id) not in D23 table | adopt | classification gap | known error codes -> REJECTED; unparseable/missing id -> AMBIGUOUS; one contract case per adapter |
+| 21 | MEDIUM: PARTIAL/OPEN legs never re-checked, so the notification goes stale | adopt | accurate result | include in the `recheck_at` sweep |
+| 22 | MEDIUM: phase B has ~15 min slack in its window | adopt | budget | D35: C0 instrument master loaded at startup only; adaptive concurrency halving moved to P1 bead B8 |

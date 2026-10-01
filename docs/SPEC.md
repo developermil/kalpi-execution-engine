@@ -109,6 +109,8 @@ Transport/response classification (`classify`, D23); one test per row:
 | `httpx.ReadTimeout`, `WriteTimeout`, `ReadError`, `RemoteProtocolError`, any 5xx | `AMBIGUOUS` |
 | 401, Zerodha 403 `TokenException`, AngelOne `AG8001` (plus per-adapter auth codes) | `AUTH_EXPIRED` |
 | other 4xx / broker validation error | `REJECTED` |
+| HTTP 200 with a known broker error code or `status:false` (e.g. AngelOne) | by code: `AUTH_EXPIRED` or `REJECTED` (D34) |
+| HTTP 200 on `place_order` with an unparseable body or no order id | `AMBIGUOUS` (D34) |
 
 Order payloads are asserted by each adapter's contract fixture (D24): Zerodha MARKET sends `market_protection=-1`; AngelOne MARKET sends `price=0`; Upstox sends `slice=false`; Groww sends its documented payload and declares `market_order_verified=false`. Adapters never wrap an official SDK's order call (D25).
 
@@ -117,13 +119,13 @@ Error taxonomy (`domain/errors.py`): `AuthExpired`, `RateLimited(retry_after)`, 
 ## 5. Execution algorithm
 1. Look up `(user_id, idempotency_key)`: exists with same `request_hash` (sha256 of canonical body) => return it; different hash => 422 `IDEMPOTENCY_KEY_REUSED`.
 2. Load holdings; run validation V1–V11 **synchronously**; any violation => 4xx, nothing persisted. Then, in one transaction, insert the run (unique `(user_id, idempotency_key)`; a racing duplicate insert falls back to step 1) and the planner legs: all SELL legs (phase 1) then all BUY legs (phase 2), `PLANNED`, + audit event.
-3. Claim the run lease (D20): `UPDATE runs SET lease_owner=:me, lease_until=:now+LEASE_TTL_S WHERE id=:id AND (lease_until IS NULL OR lease_until < :now)`; rowcount 0 => another worker owns it, do nothing. Renew every `LEASE_TTL_S/3` with `WHERE lease_owner=:me`; a failed renew stops placing immediately. Portable SQL (SQLite + Postgres).
+3. Claim the run lease (D20): `UPDATE runs SET lease_owner=:me, lease_until=:now+LEASE_TTL_S WHERE id=:id AND (lease_until IS NULL OR lease_until < :now)`; rowcount 0 => another worker owns it, do nothing. Renew every `LEASE_TTL_S/3` from a **separate asyncio task** with `WHERE lease_owner=:me`; a failed renew stops placing immediately. **Fencing (D30):** every leg/run UPDATE made while executing adds `AND EXISTS (SELECT 1 FROM runs WHERE id=:run AND lease_owner=:me AND lease_until >= :now)`; rowcount 0 = lease lost -> stop. Portable SQL (SQLite + Postgres).
 4. For each phase, bounded concurrency; per leg: compare-and-set `PLANNED -> SUBMITTING` (`WHERE status='PLANNED'`, rowcount must be 1) -> limiter -> `place_order` with retry policy (RETRY_SAFE only) -> `SUBMITTED` -> poll `get_order` until terminal or `poll_timeout_s` (then leave `OPEN`, never auto-cancel).
 5. AMBIGUOUS -> reconcile via `find_order_by_tag` (3 tries) -> adopt, else `UNKNOWN` (no resubmit). Never adopt by symbol/side/qty heuristics (D29).
-6. `AuthExpired` mid-run -> stop placing; remaining legs `SKIPPED(reason=AUTH_EXPIRED)`; run `COMPLETED_WITH_FAILURES`.
+6. `AuthExpired` mid-run -> stop placing; `PLANNED` legs `SKIPPED(reason=AUTH_EXPIRED)`; `SUBMITTED`/`OPEN` legs `UNKNOWN(reason=AUTH_EXPIRED)`; `PARTIAL` stays `PARTIAL`; run status from the §3 table only (D32).
 7. Barrier between phases: wait until every sell is terminal, `UNKNOWN`, or past `poll_timeout_s`; count sell failures per §3 (D21); apply `halt_on_sell_failure`.
-8. Late reconcile (D21): every `UNKNOWN` leg is re-checked by tag at T+60s after it became `UNKNOWN` and again at finalise; a hit updates the leg (+ event). Finalise: re-check, compute status (§3), write outbox row in the **same transaction**; worker delivers webhook/console. A T+60s hit after finalise updates the leg, recomputes status and writes a new outbox row with `event=execution.updated`.
-9. Startup: resume non-terminal runs only through the lease (step 3); reconcile `SUBMITTING` legs by tag first. Deployment runs exactly one uvicorn worker (`--workers 1`); the lease is the safety net, not the scaling model.
+8. Recheck (D21, D31): a leg that becomes `UNKNOWN`, or is left `OPEN`/`PARTIAL` at poll timeout, gets `legs.recheck_at = now+60s`. The worker sweeps legs with `recheck_at <= now` (every 15s): `find_order_by_tag`/`get_order`, then CAS `UPDATE legs ... WHERE id=:id AND status=:seen` (rowcount 0 = already updated, skip) + event; still unresolved -> `recheck_at += 60s` until 15:35 IST that day, then `NULL` (also `NULL` on `AuthExpired`). Rechecks never place orders. Finalise: re-check `UNKNOWN` legs once (same CAS), compute status (§3), write outbox row in the **same transaction**; worker delivers webhook/console. A recheck that changes a leg of a finalised run recomputes status and writes an outbox row with `event=execution.updated`. Every event gets `seq` (per-run integer, +1).
+9. Resume (D30): at startup and every `LEASE_TTL_S` after, the worker sweeps non-terminal runs whose lease is `NULL` or expired and claims them (step 3). `SUBMITTING` legs are reconciled by tag first: hit -> adopt; miss -> `UNKNOWN` + `recheck_at`, **never resent**. Only `PLANNED` legs are executed. Deployment runs exactly one uvicorn worker (`--workers 1`); the lease is the safety net, not the scaling model.
 
 ## 6. Notification payload (webhook JSON; header `X-Kalpi-Signature: sha256=<hmac>`)
 ```json
@@ -132,13 +134,13 @@ Error taxonomy (`domain/errors.py`): `AuthExpired`, `RateLimited(retry_after)`, 
   "summary":{"total":8,"filled":5,"partial":1,"open":0,"rejected":1,"cancelled":0,"failed":0,"unknown":1,"skipped":0},
   "executed":[{"symbol":"TCS","side":"SELL","qty":5,"filled_qty":5,"avg_price":3890.5,"broker_order_id":"..."}],
   "failed":[{"symbol":"INFY","side":"BUY","qty":3,"status":"REJECTED","reason":"RMS: insufficient funds"}],
-  "started_at":"...", "finished_at":"..." }
+  "seq":42, "started_at":"...", "finished_at":"..." }
 ```
-Counts: `total` = sum of the per-status counts (I4). A `PARTIAL` leg appears in `executed` (with `filled_qty`) **and** in `failed` (`qty` = remainder, `status:"PARTIAL"`). `event` is `execution.completed`, or `execution.updated` after a late reconcile (§5 step 8).
+Counts: `total` = sum of the per-status counts (I4). A `PARTIAL` leg appears in `executed` (with `filled_qty`) **and** in `failed` (`qty` = remainder, `status:"PARTIAL"`). `event` is `execution.completed`, or `execution.updated` after a recheck (§5 step 8); `seq` is the run's latest event seq, so consumers keep the highest.
 Delivery: at-least-once, exponential backoff (1,2,4,8,16s), then dead-letter flag; result always retrievable via `GET /v1/executions/{id}`.
 
 ## 7. Tables
-`broker_sessions(id,user_id,broker,token_enc,expires_at,meta_json)` · `runs(id,user_id,idempotency_key UNIQUE per user,request_hash,session_id,mode,status,options_json,lease_owner,lease_until,created_at,finished_at)` · `legs(id,run_id,idx,phase,symbol,exchange,side,qty,order_type,limit_price,tag,status,broker_order_id,filled_qty,avg_price,reason)` · `events(id,run_id,leg_id?,ts,type,payload_json)` (append-only audit) · `outbox(id,run_id,url,payload_json,attempts,next_attempt_at,status)`.
+`broker_sessions(id,user_id,broker,token_enc,expires_at,meta_json)` · `runs(id,user_id,idempotency_key UNIQUE per user,request_hash,session_id,mode,status,options_json,lease_owner,lease_until,created_at,finished_at)` · `legs(id,run_id,idx,phase,symbol,exchange,side,qty,order_type,limit_price,tag,status,broker_order_id,filled_qty,avg_price,reason,recheck_at)` · `events(id,run_id,seq,leg_id?,ts,type,payload_json)` (`UNIQUE(run_id,seq)`) (append-only audit) · `outbox(id,run_id,url,payload_json,attempts,next_attempt_at,status)`.
 
 ## 8. Config (env)
 `DATABASE_URL, FERNET_KEY, API_KEYS (user:key pairs), WEBHOOK_SECRET, DEFAULT_WEBHOOK_URL, MAX_QTY_PER_ORDER, MAX_CONCURRENCY, LEASE_TTL_S (default 30), LOG_LEVEL`. Dockerfile pins `uvicorn ... --workers 1` (D20). Never commit `.env`.

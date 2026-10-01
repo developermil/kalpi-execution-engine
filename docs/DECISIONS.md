@@ -33,6 +33,12 @@ Format: **Choice** · why · cost/trade-off · revisit if. Changing a decision =
 | D27 | **Validate before insert; idempotency keyed on `(user_id, key)` + `request_hash`**: 4xx creates no run; same key + different body = 422 `IDEMPOTENCY_KEY_REUSED` (plan-critic #8) | Insert first, persist failed runs |
 | D28 | **Explicit leg->run status table** (SPEC §3); summary has a count per leg status incl. `partial`; PARTIAL appears in `executed` (filled qty) and `failed` (remainder) (plan-critic #9) | Implicit "counts add up" |
 | D29 | **`BrokerMeta.experimental` + `live_tested`** exposed via `GET /v1/brokers`; ambiguous orders are adopted **only by tag**; order-book heuristics are report-only (`possible_matches`, never adopted) (plan-critic #12) | Heuristic adoption (`matched_heuristically`) |
+| D30 | **Lease fencing + periodic re-claim**: every execution-time UPDATE carries the lease predicate; renew runs in its own task; a resumed `SUBMITTING` leg whose tag lookup misses becomes `UNKNOWN`, never resent; the worker re-sweeps expired leases every `LEASE_TTL_S` (plan-critic #13, #14). Amends D20 | Startup-only scan; resend on tag miss |
+| D31 | **Durable recheck, kept minimal**: `legs.recheck_at` swept by the worker for `UNKNOWN`/`OPEN`/`PARTIAL` legs, CAS on status, until 15:35 IST; per-run integer `events.seq`, latest carried in the payload (plan-critic #15, #21; human: nothing more). Replaces D21's in-memory T+60s timer | In-memory timers; full scheduler; event versioning |
+| D32 | **Auth expiry mapping**: `PLANNED` -> `SKIPPED`, `SUBMITTED`/`OPEN` -> `UNKNOWN(AUTH_EXPIRED)`, `PARTIAL` kept; run status only from the SPEC §3 table (plan-critic #18) | Force `COMPLETED_WITH_FAILURES` |
+| D33 | **Every gate closes on PASS, or ADJUST with that row's actions done and recorded**; ABORT stops and escalates. Extends D22 to G1–G4; G4 audits R1–R12 (plan-critic #19) | PASS-only gates (deadlock) |
+| D34 | **HTTP 200 with an error body**: known code / `status:false` -> `REJECTED` or `AUTH_EXPIRED`; `place_order` 200 with unparseable body or no order id -> `AMBIGUOUS`; one contract case per adapter (plan-critic #20). Extends D23 | Trust HTTP status only |
+| D35 | **Scope cuts for slack**: instrument master loaded at startup only (refresh = restart; amends D13 "daily refresh"); adaptive concurrency halving moved to P1 bead B8 (amends D10) (plan-critic #22) | Keep both in P0 |
 
 ## D1 — Broker integration approach (the one the reviewers will probe)
 - **Choice:** own thin adapters on `httpx`.
@@ -61,7 +67,7 @@ Format: **Choice** · why · cost/trade-off · revisit if. Changing a decision =
 
 ## D10 — Rate limits
 - Adapter declares `RateLimits(per_second, per_minute)`; defaults to 10/s (the SEBI retail cap reported by brokers) and 200/min unless docs say otherwise (to verify in A1).
-- Token bucket + `asyncio.Semaphore` for concurrency; on 429 honour `Retry-After`, else exponential backoff with jitter; after N hits shrink concurrency by half for that session.
+- Token bucket + `asyncio.Semaphore` for concurrency; on 429 honour `Retry-After`, else exponential backoff with jitter; after N hits shrink concurrency by half for that session (P1, bead B8; D35).
 
 ## D13 — Instrument mapping (the hidden hard part)
 Likely identifier per broker (**verify in A1**): Zerodha `tradingsymbol`+exchange; Fyers `NSE:SYMBOL-EQ`; AngelOne `symboltoken` + `SYMBOL-EQ` (from scrip master); Upstox `instrument_key` like `NSE_EQ|<ISIN>` (from instruments file); Groww `trading_symbol`+exchange+segment. The resolver is an adapter-owned component with a cached master file and a `UNKNOWN_SYMBOL` failure before any order is sent.
