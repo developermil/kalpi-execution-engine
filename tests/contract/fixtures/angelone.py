@@ -24,7 +24,8 @@ MASTER = [
 
 
 def make_adapter() -> BrokerAdapter:
-    return AngelOneBroker(api_key="key")
+    ids = {"X-ClientLocalIP": "10.0.0.2", "X-ClientPublicIP": "203.0.113.7"}
+    return AngelOneBroker(api_key="key", client_ids=ids | {"X-MACAddress": "aa:bb:cc:dd:ee:ff"})
 
 
 def checksum_vectors() -> list[tuple[str, str]]:

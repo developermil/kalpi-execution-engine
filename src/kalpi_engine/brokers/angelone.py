@@ -1,7 +1,7 @@
 """Angel One SmartAPI adapter over plain httpx (no SDK). Docs: docs/brokers/angelone.md.
 
 UNVERIFIED against a live account: delivery product code, status vocab, order-book tag field,
-MPP percentage, funds semantics, 429 shape, client IP headers, whether holdings qty includes T+1.
+MPP percentage, funds semantics, 429 shape, whether holdings qty includes T+1.
 """
 
 import base64
@@ -27,12 +27,16 @@ from kalpi_engine.brokers.base import (
 )
 from kalpi_engine.brokers.instruments import InstrumentResolver
 from kalpi_engine.domain.enums import Exchange, OrderStatus, OrderType
+from kalpi_engine.domain.errors import BrokerRejected
 from kalpi_engine.domain.models import BrokerOrderState, Funds, Holding, OrderIntent
 
 IST = timezone(timedelta(hours=5, minutes=30))
-# Master lives on a different host from the API (angelone.md "Instrument master").
 MASTER_URL = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
 P = "/rest/secure/angelbroking"
+CLIENT_ENV = {  # client identity header -> env var (real values, no placeholders; login checks)
+    "X-ClientLocalIP": "ANGELONE_CLIENT_LOCAL_IP", "X-ClientPublicIP": "ANGELONE_CLIENT_PUBLIC_IP",
+    "X-MACAddress": "ANGELONE_MAC",
+}  # fmt: skip
 
 
 def totp(secret: str, now: float | None = None) -> str:
@@ -62,7 +66,7 @@ def parse_master(raw: bytes) -> Iterable[InstrumentRef]:
 
 
 def _expiry(now: datetime) -> datetime:
-    """Tokens die daily at 00:00 (post 18242); expire 5 minutes early, IST midnight."""
+    """Tokens die daily at 00:00 IST (post 18242); expire 5 minutes early."""
     nxt = (now.astimezone(IST) + timedelta(days=1)).replace(hour=0, minute=0, second=0)
     return (nxt - timedelta(minutes=5)).astimezone(UTC)
 
@@ -96,9 +100,11 @@ class AngelOneBroker(HttpBrokerAdapter):
     base_url: ClassVar[str] = "https://apiconnect.angelone.in"
     auth_error_codes: ClassVar[frozenset[str]] = frozenset({"AG8001"})  # Invalid Token
 
-    def __init__(self, api_key: str | None = None) -> None:
+    def __init__(self, api_key: str | None = None, client_ids: Mapping[str, str] | None = None):
         super().__init__()
-        self._api_key = api_key if api_key is not None else os.environ.get("ANGELONE_API_KEY", "")
+        env, given = os.environ.get, client_ids or {}
+        self._api_key = env("ANGELONE_API_KEY", "") if api_key is None else api_key
+        self._client_ids = {h: given.get(h) or env(e, "") for h, e in CLIENT_ENV.items()}
         self.instruments = InstrumentResolver(self._fetch_master, parse_master)
 
     async def _fetch_master(self) -> bytes:
@@ -106,13 +112,11 @@ class AngelOneBroker(HttpBrokerAdapter):
 
     async def startup(self) -> None:
         await self.instruments.load()
-
     def _headers(self, s: BrokerSession | None = None) -> dict[str, str]:
-        # Header set from SDK smartConnect.py; IP/MAC values UNVERIFIED placeholders.
-        ip, mac = os.environ.get("ANGELONE_PUBLIC_IP", "127.0.0.1"), "00:00:00:00:00:00"
+        # Header set from SDK smartConnect.py; IP/MAC come from config (checked in create_session).
         h = {"Content-Type": "application/json", "Accept": "application/json"}
         h |= {"X-UserType": "USER", "X-SourceID": "WEB", "X-PrivateKey": self._api_key}
-        h |= {"X-ClientLocalIP": ip, "X-ClientPublicIP": ip, "X-MACAddress": mac}
+        h |= self._client_ids
         if s is not None:
             h["Authorization"] = f"Bearer {s.access_token.get_secret_value()}"
         return h
@@ -123,6 +127,9 @@ class AngelOneBroker(HttpBrokerAdapter):
         return str(oid) if oid else None
 
     async def create_session(self, params: Mapping[str, Any]) -> BrokerSession:
+        if unset := [CLIENT_ENV[h] for h, v in self._client_ids.items() if not v]:
+            raise BrokerRejected(f"AngelOne needs client IP/MAC config; set {', '.join(unset)}")
+
         def cred(k: str) -> str:
             return str(params.get(k) or os.environ.get(f"ANGELONE_{k.upper()}", ""))
 
@@ -146,15 +153,11 @@ class AngelOneBroker(HttpBrokerAdapter):
             qty = int(h["quantity"])
             # Conservative (D19): T+1 / collateral may or may not be inside quantity (UNVERIFIED).
             held = int(h.get("t1quantity") or 0) + int(h.get("collateralquantity") or 0)
-            rows.append(
-                Holding(
-                    symbol=str(h["tradingsymbol"]).removesuffix("-EQ"),
-                    exchange=Exchange(h.get("exchange") or "NSE"),
-                    quantity=qty,
-                    sellable_qty=max(0, qty - held),
-                    avg_price=h.get("averageprice"),
-                )  # fmt: skip
-            )
+            rows.append(Holding(
+                symbol=str(h["tradingsymbol"]).removesuffix("-EQ"), quantity=qty,
+                exchange=Exchange(h.get("exchange") or "NSE"), sellable_qty=max(0, qty - held),
+                avg_price=h.get("averageprice"),
+            ))  # fmt: skip
         return rows
 
     async def get_funds(self, s: BrokerSession) -> Funds | None:
@@ -164,7 +167,6 @@ class AngelOneBroker(HttpBrokerAdapter):
 
     async def resolve_instrument(self, exchange: Exchange, symbol: str) -> InstrumentRef:
         return await self.instruments.resolve(exchange, symbol)
-
     async def place_order(self, s: BrokerSession, intent: OrderIntent) -> str:
         ref = await self.resolve_instrument(intent.exchange, intent.symbol)
         market = intent.order_type is OrderType.MARKET
@@ -177,8 +179,7 @@ class AngelOneBroker(HttpBrokerAdapter):
             "ordertype": intent.order_type.value,
             "producttype": "DELIVERY",  # UNVERIFIED code (README only shows INTRADAY)
             "duration": "DAY",
-            # MARKET must carry price "0" (post 15509); non-zero is rejected. Broker converts to
-            # MPP from 2026-04-01 (post 18960); no client MPP param is documented (UNVERIFIED).
+            # MARKET must carry price "0" (post 15509); no client MPP param documented (UNVERIFIED)
             "price": "0" if market else str(intent.limit_price),
             "quantity": str(intent.quantity),
             "ordertag": intent.tag,
@@ -189,9 +190,8 @@ class AngelOneBroker(HttpBrokerAdapter):
         return str(self.order_id_from(body))
 
     async def get_order(self, s: BrokerSession, broker_order_id: str) -> BrokerOrderState:
-        body = await self.request(  # GET details/{uniqueorderid} (SDK routes)
-            "GET", f"{P}/order/v1/details/{broker_order_id}", headers=self._headers(s)
-        )
+        url = f"{P}/order/v1/details/{broker_order_id}"  # GET details/{uniqueorderid} (SDK routes)
+        body = await self.request("GET", url, headers=self._headers(s))
         return _state({"orderid": broker_order_id, **body["data"]})
 
     async def find_order_by_tag(self, s: BrokerSession, tag: str) -> BrokerOrderState | None:
