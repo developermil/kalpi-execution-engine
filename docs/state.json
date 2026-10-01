@@ -59,6 +59,12 @@
     "started": "2026-10-01T21:10+05:30",
     "status": "done"
   },
+  "B4c": {
+    "closed": "2026-10-01T21:58+05:30",
+    "evidence": "tests/engine/test_lease.py 9 passed; engine suite 61/61 in 23 consecutive runs: crash after broker accept + resume -> adopted by tag, 1 order/1 place call; resumed SUBMITTING tag miss -> UNKNOWN, 0 resends; 2 concurrent resumers -> 1 COMPLETED + 1 None, 3 orders for 3 legs; old owner lease expired mid-place_order -> SUBMITTED write 0 rows, leg stays SUBMITTING, no outbox, Paper 1 order; restart within TTL -> sweep_once empty, periodic sweep resumes after expiry (run.resumed ts > old lease_until); failed renew -> place_calls 1, legs 2-3 stay PLANNED; renewal keeps a 100s run alive with TTL 30. grep -rn update_run_unfenced src -> empty. make check 223 passed; mypy strict execution clean",
+    "started": "2026-10-01T21:21+05:30",
+    "status": "done"
+  },
   "B5": {
     "closed": "2026-10-01T21:05+05:30",
     "evidence": "13 tests pass (tests/unit/test_notify.py 8, tests/engine/test_notifier.py 6... incl.): payload keys == SPEC \u00a76, summary 9 buckets sum to total (7 legs, SUBMITTING counted unknown per D36), PARTIAL ITC in executed filled_qty=4 and failed qty=6; HMAC sha256 verifies, tamper/wrong-secret rejected, /mock/webhook 401 BAD_SIGNATURE + keeps last 50; consumer down -> 6 attempts at +1,2,4,8,16s then DEAD, run status stays COMPLETED, no further tries; consumer back -> 1 delivery, 0 resends over 5 more sweeps; finalise writes 1 outbox row with seq == last event seq in same txn. make check 203 passed",

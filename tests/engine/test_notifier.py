@@ -87,6 +87,7 @@ async def run_once(sm: SM, webhook_url: str | None, wall: Wall) -> str:
         now=wall(),
     )
     clock = FakeClock()
+    clock.watch(sm)
     ex = Executor(
         sm, broker, session, LimiterRegistry(clock), clock=clock, wall=wall, config=ExecConfig()
     )

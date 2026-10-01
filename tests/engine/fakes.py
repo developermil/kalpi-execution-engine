@@ -1,8 +1,13 @@
 import asyncio
+import functools
+import heapq
+import weakref
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+import aiosqlite
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from kalpi_engine.brokers.base import BrokerSession
@@ -19,24 +24,100 @@ from kalpi_engine.storage.db import Event, Leg, Outbox, Run
 T0 = datetime(2026, 9, 30, 5, 30, tzinfo=UTC)
 
 
-class FakeClock:
-    """Monotonic fake: sleep(d) wakes at its own target time, so concurrent sleepers compose."""
+_WATCHING: "weakref.WeakSet[FakeClock]" = weakref.WeakSet()
 
-    def __init__(self) -> None:
+
+def _install_io_counter() -> None:
+    """Count every SQLite call handed to aiosqlite's worker thread as busy, for all clocks."""
+    conn_cls = aiosqlite.core.Connection
+    if getattr(conn_cls, "_fake_clock_patched", False):
+        return
+
+    def counted(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+        @functools.wraps(fn)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            clocks = list(_WATCHING)
+            for c in clocks:
+                c.busy += 1
+            try:
+                return await fn(*args, **kwargs)
+            finally:
+                for c in clocks:
+                    c.busy -= 1
+
+        return wrapper
+
+    conn_cls._execute = counted(conn_cls._execute)  # type: ignore[method-assign]
+    conn_cls._connect = counted(conn_cls._connect)  # type: ignore[method-assign]
+    conn_cls._fake_clock_patched = True  # type: ignore[attr-defined]
+
+
+class FakeClock:
+    """Virtual time. sleep(d) parks until time reaches now+d. A ticker advances time to the
+    earliest wake-up only when the system is quiescent: no SQLite call in flight (watch())
+    and nothing runnable after a few loop turns. Real I/O therefore costs no fake time and
+    concurrent sleepers (pollers, the lease renewer) wake in timestamp order.
+    """
+
+    def __init__(self, tick_real_s: float = 0.001) -> None:
         self.t = 1000.0
         self.sleeps: list[float] = []
+        self._tick_real_s = tick_real_s
+        self._waiters: list[tuple[float, int, asyncio.Future[None]]] = []
+        self._seq = 0
+        self._ticker: asyncio.Task[None] | None = None
+        self.busy = 0  # SQLite calls in flight
+
+    def watch(self, sm: async_sessionmaker[AsyncSession]) -> None:
+        _install_io_counter()
+        _WATCHING.add(self)
 
     def now(self) -> float:
         return self.t
 
     async def sleep(self, d: float) -> None:
         self.sleeps.append(d)
-        target = self.t + d
-        await asyncio.sleep(0)
-        self.t = max(self.t, target)
+        if d <= 0:
+            await asyncio.sleep(0)
+            return
+        fut: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self._seq += 1
+        heapq.heappush(self._waiters, (self.t + d, self._seq, fut))
+        if self._ticker is None or self._ticker.done():
+            self._ticker = asyncio.create_task(self._tick())
+        await fut
 
     def advance(self, d: float) -> None:
+        """Manual jump (between runs); wakes anything now due."""
         self.t += d
+        self._wake_due()
+
+    def _wake_due(self) -> None:
+        while self._waiters and (self._waiters[0][2].done() or self._waiters[0][0] <= self.t):
+            _, _, fut = heapq.heappop(self._waiters)
+            if not fut.done():
+                fut.set_result(None)
+
+    async def _quiescent(self) -> bool:
+        if self.busy:
+            return False
+        for _ in range(20):  # let every runnable task reach its next blocking await
+            await asyncio.sleep(0)
+            if self.busy:
+                return False
+        return True
+
+    async def _tick(self) -> None:
+        while True:
+            await asyncio.sleep(self._tick_real_s)
+            if not await self._quiescent():
+                continue
+            while self._waiters and self._waiters[0][2].done():  # cancelled sleepers
+                heapq.heappop(self._waiters)
+            if not self._waiters:
+                return
+            self.t = max(self.t, self._waiters[0][0])
+            self._wake_due()
 
 
 class Harness:
@@ -46,6 +127,7 @@ class Harness:
         self.sm = sm
         self.broker = PaperBroker(faults)
         self.clock = FakeClock()
+        self.clock.watch(sm)
         self.limiters = LimiterRegistry(self.clock)
         self.session: BrokerSession | None = None
 

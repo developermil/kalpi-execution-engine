@@ -81,6 +81,7 @@ async def execute(
         now=datetime.now(UTC),
     )
     clock = FakeClock()
+    clock.watch(sm)
     ex = Executor(
         sm,
         broker,
@@ -354,5 +355,6 @@ async def test_leg_committed_submitting_before_place_order(sm: SM) -> None:
         now=datetime.now(UTC),
     )
     clock = FakeClock()
+    clock.watch(sm)
     status = await Executor(sm, broker, session, LimiterRegistry(clock), clock=clock).run(run_id)
     assert seen == [LegStatus.SUBMITTING] and status is RunStatus.COMPLETED

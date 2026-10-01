@@ -1,6 +1,6 @@
 """Leg state transitions: CAS on the expected status + an audit event in one transaction.
 
-B4c adds the lease fence to every write here (D30).
+Every write carries the lease fence (D30): after a takeover it affects 0 rows.
 """
 
 import logging
@@ -15,13 +15,19 @@ from kalpi_engine.domain.models import BrokerOrderState
 from kalpi_engine.execution.reconcile import next_recheck
 from kalpi_engine.storage import repo
 from kalpi_engine.storage.db import Leg
+from kalpi_engine.storage.repo import Fence
 
 log = logging.getLogger(__name__)
 
 
 class LegWriter:
-    def __init__(self, sm: async_sessionmaker[AsyncSession], wall: Callable[[], datetime]) -> None:
-        self.sm, self.wall = sm, wall
+    def __init__(
+        self,
+        sm: async_sessionmaker[AsyncSession],
+        wall: Callable[[], datetime],
+        fence: Callable[[], Fence],
+    ) -> None:
+        self.sm, self.wall, self.fence = sm, wall, fence
 
     async def move(
         self, leg: Leg, expected: LegStatus, new: LegStatus, event: str, **values: Any
@@ -30,7 +36,7 @@ class LegWriter:
             k: v for k, v in values.items() if k in ("broker_order_id", "filled_qty", "reason")
         }
         async with self.sm.begin() as s:
-            ok = await repo.cas_leg(s, leg.id, expected, None, status=new, **values)
+            ok = await repo.cas_leg(s, leg.id, expected, self.fence(), status=new, **values)
             if ok:
                 await repo.append_event(s, leg.run_id, event, payload, self.wall(), leg_id=leg.id)
         if not ok:
@@ -51,7 +57,7 @@ class LegWriter:
 
     async def set_recheck(self, leg: Leg, current: LegStatus, at: datetime | None) -> None:
         async with self.sm.begin() as s:
-            await repo.cas_leg(s, leg.id, current, None, recheck_at=at)
+            await repo.cas_leg(s, leg.id, current, self.fence(), recheck_at=at)
 
     async def skip(self, leg: Leg, reason: str) -> None:
         await self.move(leg, LegStatus.PLANNED, LegStatus.SKIPPED, "leg.skipped", reason=reason)

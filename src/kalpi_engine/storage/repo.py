@@ -163,9 +163,24 @@ async def update_run(s: AsyncSession, fence: Fence, **values: Any) -> bool:
     return await _rowcount(s, stmt) == 1
 
 
-async def update_run_unfenced(s: AsyncSession, run_id: str, **values: Any) -> bool:
-    """Pre-lease callers only (B4a executor until B4c wires the lease); prefer update_run."""
-    return await _rowcount(s, update(Run).where(Run.id == run_id).values(**values)) == 1
+async def lease_held(s: AsyncSession, fence: Fence) -> bool:
+    stmt = select(Run.id).where(
+        Run.id == fence.run_id, Run.lease_owner == fence.owner, Run.lease_until >= fence.now
+    )
+    return await s.scalar(stmt) is not None
+
+
+async def resumable_runs(s: AsyncSession, now: datetime) -> list[Run]:
+    """Non-terminal runs nobody holds a live lease on (D30 resume sweep)."""
+    stmt = _fresh(
+        select(Run)
+        .where(
+            Run.status.in_((RunStatus.CREATED, RunStatus.RUNNING)),
+            or_(Run.lease_until.is_(None), Run.lease_until < now),
+        )
+        .order_by(Run.created_at)
+    )
+    return list(await s.scalars(stmt))
 
 
 async def set_final_status(s: AsyncSession, run_id: str, status: RunStatus) -> bool:

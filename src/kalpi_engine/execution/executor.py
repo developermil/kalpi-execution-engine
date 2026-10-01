@@ -1,11 +1,9 @@
-"""Run executor core (SPEC §5 steps 2, 4, 7; D7, D9, D21).
+"""Run executor (SPEC §5 steps 2-7, 9; D7, D9, D20, D21, D30, D32).
 
-Per leg: CAS PLANNED->SUBMITTING is committed *before* place_order (write-ahead); only
-RETRY_SAFE errors retry; AMBIGUOUS -> adopt by tag (3 lookups) or UNKNOWN, never resent.
-Sells finish (terminal or poll timeout) before any buy starts. AuthExpired stops placing (D32).
-
-Not here yet: lease claim/renew + fencing (B4c; writes pass fence=None and rely on the status
-CAS).
+Only the lease holder executes; every write is fenced. Write-ahead CAS PLANNED->SUBMITTING
+before place_order; only RETRY_SAFE retries; AMBIGUOUS -> adopt by tag or UNKNOWN, never resent.
+Sells settle before buys. On resume, SUBMITTING legs are reconciled by tag, SUBMITTED/OPEN/
+PARTIAL re-polled; only PLANNED legs are ever placed.
 """
 
 import asyncio
@@ -13,14 +11,23 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from kalpi_engine.brokers.base import BrokerAdapter, BrokerSession
-from kalpi_engine.domain.enums import LegStatus, OrderStatus, Phase, RunStatus
+from kalpi_engine.domain.enums import (
+    TERMINAL_RUN_STATUSES,
+    LegStatus,
+    OrderStatus,
+    Phase,
+    RunStatus,
+)
 from kalpi_engine.domain.errors import AmbiguousSubmit, AuthExpired, KalpiError
 from kalpi_engine.domain.models import OrderIntent
-from kalpi_engine.domain.status import run_status, sell_failed
+from kalpi_engine.domain.status import sell_failed
+from kalpi_engine.execution.finalise import write_final
+from kalpi_engine.execution.lease import Lease
 from kalpi_engine.execution.legs import LegWriter, fill_values, reason_of
 from kalpi_engine.execution.limits import (
     RETRY_SAFE,
@@ -30,13 +37,13 @@ from kalpi_engine.execution.limits import (
     call_with_retry,
 )
 from kalpi_engine.execution.reconcile import Reconciler, next_recheck
-from kalpi_engine.notify.payload import build_payload
 from kalpi_engine.storage import repo
 from kalpi_engine.storage.db import Leg
 
 log = logging.getLogger(__name__)
 
 _TERMINAL = {OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.CANCELLED}
+_POLLABLE = (LegStatus.SUBMITTED, LegStatus.OPEN, LegStatus.PARTIAL)
 
 
 @dataclass(frozen=True)
@@ -45,10 +52,16 @@ class ExecConfig:
     max_concurrency: int = 5
     retry: RetryPolicy = field(default_factory=RetryPolicy)
     default_webhook_url: str | None = None  # None -> console sink
+    lease_ttl_s: int = 30
+    owner: str = field(default_factory=lambda: f"w-{uuid4().hex[:12]}")
 
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+class LeaseLost(Exception):
+    """Internal: another worker owns the run now; stop without writing."""
 
 
 class Executor:
@@ -69,43 +82,62 @@ class Executor:
         self._limiters = limiters
         self._sem = asyncio.Semaphore(self.cfg.max_concurrency)
         self._stop_reason: str | None = None  # set on AuthExpired: stop placing
-        self.legs = LegWriter(sm, wall)
+        self.lease: Lease | None = None
+        self.legs = LegWriter(sm, wall, lambda: self._lease().fence())
         self.rec = Reconciler(
-            sm,
-            broker,
-            session,
-            limiters,
-            clock=clock,
-            wall=wall,
+            sm, broker, session, limiters, clock=clock, wall=wall,
             default_webhook_url=self.cfg.default_webhook_url,
-        )
+        )  # fmt: skip
 
-    async def run(self, run_id: str) -> RunStatus:
+    def _lease(self) -> Lease:
+        assert self.lease is not None, "fenced write outside run()"
+        return self.lease
+
+    async def run(self, run_id: str) -> RunStatus | None:
+        """Execute or resume a run. None = not ours (lease held elsewhere) or lease lost."""
+        self.lease = Lease(
+            self.sm, run_id, self.cfg.owner, self.cfg.lease_ttl_s, clock=self.clock, wall=self.wall
+        )
+        if not await self.lease.claim():
+            return None
+        self.lease.start_renewing()
+        try:
+            return await self._execute(run_id)
+        except LeaseLost:
+            log.warning("run %s: lease lost by %s; stopping", run_id, self.cfg.owner)
+            return None
+        finally:
+            await self.lease.stop()
+
+    async def _execute(self, run_id: str) -> RunStatus:
         async with self.sm.begin() as s:
             run = await repo.get_run(s, run_id)
             if run is None:
                 raise LookupError(run_id)
+            if run.status in TERMINAL_RUN_STATUSES:
+                return run.status
+            event = "run.resumed" if run.status is RunStatus.RUNNING else "run.running"
+            if not await repo.update_run(s, self._lease().fence(), status=RunStatus.RUNNING):
+                raise LeaseLost
+            await repo.append_event(s, run_id, event, {"owner": self.cfg.owner}, self.wall())
             legs = await repo.get_legs(s, run_id)
-            opts = run.options_json
-            await repo.update_run_unfenced(s, run_id, status=RunStatus.RUNNING)
-            await repo.append_event(s, run_id, "run.running", {}, self.wall())
+        opts = run.options_json
         poll_timeout_s = float(opts.get("poll_timeout_s", 60))
-        rl = self.broker.meta.rate_limits
+        meta = self.broker.meta
         self._orders = self._limiters.get(
-            self.broker.meta.id, run.session_id, "orders", rl.orders_per_sec
+            meta.id, run.session_id, "orders", meta.rate_limits.orders_per_sec
         )
         self._reads = self._limiters.get(
-            self.broker.meta.id, run.session_id, "reads", rl.reads_per_sec
+            meta.id, run.session_id, "reads", meta.rate_limits.reads_per_sec
         )
 
-        sells = [lg for lg in legs if lg.phase is Phase.SELL]
-        buys = [lg for lg in legs if lg.phase is Phase.BUY]
-        await self._phase(sells, poll_timeout_s)
-
+        await self._phase([lg for lg in legs if lg.phase is Phase.SELL], poll_timeout_s)
+        await self._check_lease()
         # Barrier (D21): every sell is terminal, UNKNOWN, or past poll timeout here.
         async with self.sm() as s:
-            sells = [lg for lg in await repo.get_legs(s, run_id) if lg.phase is Phase.SELL]
-        failed = [lg for lg in sells if sell_failed(lg.status)]
+            legs = await repo.get_legs(s, run_id)
+        failed = [lg for lg in legs if lg.phase is Phase.SELL and sell_failed(lg.status)]
+        buys = [lg for lg in legs if lg.phase is Phase.BUY]
         halt = bool(failed) and bool(opts.get("halt_on_sell_failure", False))
         if failed:
             payload = {
@@ -113,13 +145,21 @@ class Executor:
                 "failed": [{"symbol": lg.symbol, "status": lg.status.value} for lg in failed],
             }
             async with self.sm.begin() as s:
+                if not await repo.lease_held(s, self._lease().fence()):
+                    raise LeaseLost
                 await repo.append_event(s, run_id, "barrier.sell_failures", payload, self.wall())
         if halt:
             for lg in buys:
-                await self.legs.skip(lg, "SELL_FAILURE_HALT")
+                if lg.status is LegStatus.PLANNED:
+                    await self.legs.skip(lg, "SELL_FAILURE_HALT")
         else:
             await self._phase(buys, poll_timeout_s)
+        await self._check_lease()
         return await self._finalise(run_id)
+
+    async def _check_lease(self) -> None:
+        if not await self._lease().held():
+            raise LeaseLost
 
     # --- phases / legs --------------------------------------------------------------
     async def _phase(self, legs: list[Leg], poll_timeout_s: float) -> None:
@@ -127,25 +167,31 @@ class Executor:
 
     async def _guarded(self, leg: Leg, poll_timeout_s: float) -> None:
         async with self._sem:
-            if self._stop_reason is not None:
-                await self.legs.skip(leg, self._stop_reason)
-                return
-            await self._leg(leg, poll_timeout_s)
+            if self._lease().lost:
+                return  # the next owner resumes this leg
+            if leg.status is LegStatus.PLANNED:
+                if self._stop_reason is not None:
+                    await self.legs.skip(leg, self._stop_reason)
+                else:
+                    await self._leg(leg, poll_timeout_s)
+            elif leg.status is LegStatus.SUBMITTING:  # crashed mid-submit: tag decides (D30)
+                order_id = await self._adopt_by_tag(leg, "RESUMED_SUBMITTING")
+                if order_id is not None:
+                    await self._poll(leg, order_id, poll_timeout_s, LegStatus.SUBMITTED)
+            elif leg.status in _POLLABLE and leg.broker_order_id:
+                await self._poll(leg, leg.broker_order_id, poll_timeout_s, leg.status)
 
     async def _leg(self, leg: Leg, poll_timeout_s: float) -> None:
         if not await self.legs.move(leg, LegStatus.PLANNED, LegStatus.SUBMITTING, "leg.submitting"):
-            return  # someone else owns this leg
+            return  # lease lost or someone else owns this leg
+        if self._lease().lost:
+            return  # renew failed: do not place (the next owner reconciles by tag)
         intent = OrderIntent(
-            leg_id=leg.id,
-            phase=leg.phase,
-            symbol=leg.symbol,
-            exchange=leg.exchange,
-            side=leg.side,
-            quantity=leg.qty,
-            order_type=leg.order_type,
-            limit_price=leg.limit_price,
-            tag=leg.tag,
-        )
+            leg_id=leg.id, phase=leg.phase, symbol=leg.symbol, exchange=leg.exchange,
+            side=leg.side, quantity=leg.qty, order_type=leg.order_type,
+            limit_price=leg.limit_price, tag=leg.tag,
+        )  # fmt: skip
+        sub = LegStatus.SUBMITTING
         try:
             order_id = await call_with_retry(
                 lambda: self.broker.place_order(self.session, intent),
@@ -154,70 +200,54 @@ class Executor:
                 policy=self.cfg.retry,
             )
         except RETRY_SAFE as e:  # the broker provably never accepted it
-            await self.legs.move(
-                leg, LegStatus.SUBMITTING, LegStatus.FAILED, "leg.failed", reason=reason_of(e)
-            )
+            await self.legs.move(leg, sub, LegStatus.FAILED, "leg.failed", reason=reason_of(e))
             return
         except AuthExpired as e:  # 401 before acceptance: nothing was placed
             self._stop_reason = "AUTH_EXPIRED"
-            await self.legs.move(
-                leg, LegStatus.SUBMITTING, LegStatus.FAILED, "leg.failed", reason=reason_of(e)
-            )
+            await self.legs.move(leg, sub, LegStatus.FAILED, "leg.failed", reason=reason_of(e))
             return
         except AmbiguousSubmit as e:
             adopted = await self._adopt_by_tag(leg, reason_of(e))
-            if adopted is None:
-                return
-            order_id = adopted
-            await self._poll(leg, order_id, poll_timeout_s)
+            if adopted is not None:
+                await self._poll(leg, adopted, poll_timeout_s, LegStatus.SUBMITTED)
             return
         except KalpiError as e:  # REJECTED class: validation / RMS / funds
-            await self.legs.move(
-                leg, LegStatus.SUBMITTING, LegStatus.REJECTED, "leg.rejected", reason=reason_of(e)
-            )
+            await self.legs.move(leg, sub, LegStatus.REJECTED, "leg.rejected", reason=reason_of(e))
             return
         except Exception as e:  # unexpected after send: the order may exist (D9)
             log.exception("place_order crashed for leg %s", leg.id)
-            await self.legs.unknown(leg, LegStatus.SUBMITTING, f"UNEXPECTED: {type(e).__name__}")
+            await self.legs.unknown(leg, sub, f"UNEXPECTED: {type(e).__name__}")
             return
-        await self.legs.move(
-            leg,
-            LegStatus.SUBMITTING,
-            LegStatus.SUBMITTED,
-            "leg.submitted",
-            broker_order_id=order_id,
-        )
-        await self._poll(leg, order_id, poll_timeout_s)
+        if await self.legs.move(
+            leg, sub, LegStatus.SUBMITTED, "leg.submitted", broker_order_id=order_id
+        ):
+            await self._poll(leg, order_id, poll_timeout_s, LegStatus.SUBMITTED)
 
     async def _adopt_by_tag(self, leg: Leg, reason: str) -> str | None:
         """AMBIGUOUS (D9): look the tag up; adopt the order if found, else UNKNOWN. Never resend."""
+        sub = LegStatus.SUBMITTING
         try:
             state = await self.rec.find_by_tag(leg.tag)
         except AuthExpired:
             self._stop_reason = "AUTH_EXPIRED"
-            await self.legs.unknown(leg, LegStatus.SUBMITTING, "AUTH_EXPIRED", recheck=False)
+            await self.legs.unknown(leg, sub, "AUTH_EXPIRED", recheck=False)
             return None
         except Exception as e:
-            await self.legs.unknown(
-                leg, LegStatus.SUBMITTING, f"{reason}; LOOKUP_ERROR: {reason_of(e)}"
-            )
+            await self.legs.unknown(leg, sub, f"{reason}; LOOKUP_ERROR: {reason_of(e)}")
             return None
         if state is None:
-            await self.legs.unknown(leg, LegStatus.SUBMITTING, reason)
+            await self.legs.unknown(leg, sub, reason)
             return None
         moved = await self.legs.move(
-            leg,
-            LegStatus.SUBMITTING,
-            LegStatus.SUBMITTED,
-            "leg.adopted",
-            broker_order_id=state.broker_order_id,
+            leg, sub, LegStatus.SUBMITTED, "leg.adopted", broker_order_id=state.broker_order_id
         )
         return state.broker_order_id if moved else None
 
-    async def _poll(self, leg: Leg, order_id: str, poll_timeout_s: float) -> None:
+    async def _poll(
+        self, leg: Leg, order_id: str, poll_timeout_s: float, current: LegStatus
+    ) -> None:
         deadline = self.clock.now() + poll_timeout_s
-        current = LegStatus.SUBMITTED
-        while True:
+        while not self._lease().lost:
             try:
                 state = await call_with_retry(
                     lambda: self.broker.get_order(self.session, order_id),
@@ -253,27 +283,17 @@ class Executor:
     async def _finalise(self, run_id: str) -> RunStatus:
         if self._stop_reason is None:  # one last tag/order lookup for UNKNOWN legs (D21)
             async with self.sm() as s:
-                unknown = [
-                    lg for lg in await repo.get_legs(s, run_id) if lg.status is LegStatus.UNKNOWN
-                ]
-            for lg in unknown:
-                await self.rec.recheck_leg(lg)
-        async with self.sm.begin() as s:
-            legs = await repo.get_legs(s, run_id)
-            status = run_status(lg.status for lg in legs)
-            await repo.update_run_unfenced(s, run_id, status=status, finished_at=self.wall())
-            counts: dict[str, int] = {}
+                legs = await repo.get_legs(s, run_id)
             for lg in legs:
-                counts[lg.status.value] = counts.get(lg.status.value, 0) + 1
-            seq = await repo.append_event(
-                s, run_id, "run.finished", {"status": status.value, "legs": counts}, self.wall()
-            )
-            run = await repo.get_run(s, run_id)
-            assert run is not None
-            payload = build_payload(
-                run, legs, broker=self.broker.meta.id, event="execution.completed", seq=seq
-            )
-            url = run.options_json.get("webhook_url") or self.cfg.default_webhook_url or None
-            # Same transaction as the final status (SPEC §5 step 8): never a run without its outbox.
-            await repo.add_outbox(s, run_id, url, payload, self.wall())
+                if lg.status is LegStatus.UNKNOWN:
+                    await self.rec.recheck_leg(lg)
+        status = await write_final(
+            self.sm,
+            self._lease().fence(),
+            broker_id=self.broker.meta.id,
+            default_webhook_url=self.cfg.default_webhook_url,
+            now=self.wall(),
+        )
+        if status is None:
+            raise LeaseLost
         return status
