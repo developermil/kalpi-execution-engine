@@ -29,6 +29,12 @@
     "started": "2026-10-01T20:04+05:30",
     "status": "done"
   },
+  "B1": {
+    "closed": "2026-10-01T20:15+05:30",
+    "evidence": "tests/unit/test_planner.py 45 passed (V1-V11 each incl. dup symbols, oversell sellable<qty, REBALANCE w/o side, FIRST_TIME w/ holdings 409, MARKET on unverified broker = warning); planner/ coverage 100%; make check 138 passed",
+    "started": "2026-10-01T20:12+05:30",
+    "status": "done"
+  },
   "G0": {
     "closed": "2026-10-01T20:07+05:30",
     "evidence": "Row1 PASS: spike 5/5 FILLED via real port in 0.007s, port unchanged by A5. Row2 ADJUST x5 (blocking UNVERIFIED: fyers 3, upstox 3, zerodha 4, groww 4, angelone 5; none >6): F1 steps 2-3 recorded per broker in BROKERS.md triage and enforced by C1-C5 done_when (experimental=true, live_tested=false, SDK constants only, never wrap SDK place_order). Row3 ADJUST: elapsed H4:37 since first commit 15:31 (>H4:30): D1 cut to F12 minimal page, est 90->45m (D37). Verdict ADJUST, actions done (D22/D33)",
