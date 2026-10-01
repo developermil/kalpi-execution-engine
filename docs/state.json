@@ -77,6 +77,12 @@
     "started": "2026-10-01T22:06+05:30",
     "status": "done"
   },
+  "B7": {
+    "closed": "2026-10-01T22:57+05:30",
+    "evidence": "tests/engine/test_faults.py 20/20 seeds pass (100 legs each, per-tag seeded faults; 20 seeds total 399x429, 88 ambiguous, 208 rejects, 114 partials, 62 late fills): max orders per tag <=1; no leg PLANNED/SUBMITTING/SUBMITTED; 0 buys reached broker with an unresolved sell (DB probe in place_order); late legs UNKNOWN after run, FILLED/PARTIAL after T+61 sweep with 1 place call each + execution.updated; ambiguous tags placed <=1x; notification failed list == non-FILLED legs, summary sums to total, run.status == run_status() before and after sweep. I8: tests/unit/test_restart_faults.py 5/5 seeds, 12-leg run stranded with accepted/unsent SUBMITTING + PLANNED legs, app restart -> run.resumed, accepted adopted by tag (1 order), unsent -> UNKNOWN 0 orders, planned placed once. make check 258 passed",
+    "started": "2026-10-01T22:48+05:30",
+    "status": "done"
+  },
   "G0": {
     "closed": "2026-10-01T20:07+05:30",
     "evidence": "Row1 PASS: spike 5/5 FILLED via real port in 0.007s, port unchanged by A5. Row2 ADJUST x5 (blocking UNVERIFIED: fyers 3, upstox 3, zerodha 4, groww 4, angelone 5; none >6): F1 steps 2-3 recorded per broker in BROKERS.md triage and enforced by C1-C5 done_when (experimental=true, live_tested=false, SDK constants only, never wrap SDK place_order). Row3 ADJUST: elapsed H4:37 since first commit 15:31 (>H4:30): D1 cut to F12 minimal page, est 90->45m (D37). Verdict ADJUST, actions done (D22/D33)",
