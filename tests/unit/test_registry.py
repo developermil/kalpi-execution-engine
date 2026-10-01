@@ -11,7 +11,7 @@ from kalpi_engine.brokers.registry import Registry, discover
 from kalpi_engine.config import Settings
 from kalpi_engine.main import create_app
 
-DROP_IN = '''
+DROP_IN = """
 from kalpi_engine.brokers.paper import PaperBroker
 from kalpi_engine.brokers.base import AuthMode, BrokerMeta, RateLimits
 
@@ -19,7 +19,7 @@ from kalpi_engine.brokers.base import AuthMode, BrokerMeta, RateLimits
 class DropInBroker(PaperBroker):
     meta = BrokerMeta(id="dropin", name="Drop-in", auth_mode=AuthMode.NONE,
                       rate_limits=RateLimits(orders_per_sec=1, reads_per_sec=1))
-'''
+"""
 
 
 @pytest.fixture
@@ -61,7 +61,15 @@ def test_get_brokers_lists_paper_with_flags() -> None:
     client = TestClient(create_app(Settings(), Registry(discover())))
     rows = client.get("/v1/brokers").json()
     paper = next(r for r in rows if r["id"] == "paper")
-    for key in ("experimental", "live_tested", "market_order_verified", "auth_mode",
-                "credential_fields", "rate_limits", "requires_static_ip", "daily_2fa"):
+    for key in (
+        "experimental",
+        "live_tested",
+        "market_order_verified",
+        "auth_mode",
+        "credential_fields",
+        "rate_limits",
+        "requires_static_ip",
+        "daily_2fa",
+    ):
         assert key in paper, key  # fmt: skip
     assert paper["live_tested"] is False and paper["auth_mode"] == "NONE"

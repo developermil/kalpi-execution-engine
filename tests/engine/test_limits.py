@@ -84,6 +84,25 @@ async def test_fractional_rate() -> None:
     assert max_in_window(ts) <= 3 and max_in_window(ts, 2.0) <= 5
 
 
+@pytest.mark.parametrize(("rate", "gap"), [(0.5, 2.0), (0.1, 10.0), (0.999, 1 / 0.999)])
+async def test_sub_1_per_s_rate_clamps_to_one_call_per_window(rate: float, gap: float) -> None:
+    clock = FakeClock()
+    lim = RateLimiter(rate, clock)
+    assert lim.n == 1
+    ts = []
+    for _ in range(5):
+        await lim.acquire()
+        ts.append(clock.now())
+    assert [b - a for a, b in zip(ts, ts[1:], strict=False)] == pytest.approx([gap] * 4)
+    assert max_in_window(ts, gap) == 1
+
+
+@pytest.mark.parametrize("rate", [0, -1.0])
+def test_non_positive_rate_rejected(rate: float) -> None:
+    with pytest.raises(ValueError):
+        RateLimiter(rate, FakeClock())
+
+
 def test_registry_keys_per_broker_session_and_kind() -> None:
     reg = LimiterRegistry(FakeClock())
     a = reg.get("zerodha", "s1", "orders", 10)

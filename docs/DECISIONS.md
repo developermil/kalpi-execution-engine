@@ -41,6 +41,7 @@ Format: **Choice** · why · cost/trade-off · revisit if. Changing a decision =
 | D35 | **Scope cuts for slack**: instrument master loaded at startup only (refresh = restart; amends D13 "daily refresh"); adaptive concurrency halving moved to P1 bead B8 (amends D10) (plan-critic #22) | Keep both in P0 |
 | D36 | **Non-terminal legs at finalisation count as in doubt**: `run_status()` treats `PLANNED`/`SUBMITTING`/`SUBMITTED` like `UNKNOWN`, so a run with any such leg is `COMPLETED_WITH_FAILURES`, never `FAILED` (an order may exist). Executor should map them first (D30/D32); this is the backstop. Pinned by `test_run_status_non_terminal_never_failed`. Extends D28 | Treat as `FAILED`; raise on non-terminal input |
 | D37 | **G0 ADJUST on elapsed time (H4:35 at gate vs <=H4:30)**: per the G0 row, D1 is cut to the F12 minimal page (broker select + JSON textarea + Connect/Preview/Execute + leg polling; no CSV upload or generated forms), est 90->45m; ui_smoke still must reach COMPLETED for first-time and rebalance. README discloses the UI as minimal | Keep full D1 and eat buffer |
+| D38 | **Sliding-window limiter instead of token bucket**: `RateLimiter` admits at most `n` calls in any window of `window_s` (log of timestamps). A token bucket of capacity r allows up to 2r calls across a 1s boundary (full bucket + refill), breaching a broker's hard per-second cap (e.g. SEBI 10/s). Rate >= 1/s: `n = floor(rate)`, window 1s (2.5/s -> 2/s, conservative). Rate < 1/s: never rounds to 0; clamped to `n = 1` per `1/rate` s (0.5/s -> 1 call per 2s). Pinned by `tests/engine/test_limits.py` (B3). Amends D10 | Classic token bucket; round fractional rates up |
 
 ## D1 — Broker integration approach (the one the reviewers will probe)
 - **Choice:** own thin adapters on `httpx`.
@@ -69,7 +70,7 @@ Format: **Choice** · why · cost/trade-off · revisit if. Changing a decision =
 
 ## D10 — Rate limits
 - Adapter declares `RateLimits(per_second, per_minute)`; defaults to 10/s (the SEBI retail cap reported by brokers) and 200/min unless docs say otherwise (to verify in A1).
-- Token bucket + `asyncio.Semaphore` for concurrency; on 429 honour `Retry-After`, else exponential backoff with jitter; after N hits shrink concurrency by half for that session (P1, bead B8; D35).
+- Sliding-window limiter (D38; was token bucket) + `asyncio.Semaphore` for concurrency; on 429 honour `Retry-After`, else exponential backoff with jitter; after N hits shrink concurrency by half for that session (P1, bead B8; D35).
 
 ## D13 — Instrument mapping (the hidden hard part)
 Likely identifier per broker (**verify in A1**): Zerodha `tradingsymbol`+exchange; Fyers `NSE:SYMBOL-EQ`; AngelOne `symboltoken` + `SYMBOL-EQ` (from scrip master); Upstox `instrument_key` like `NSE_EQ|<ISIN>` (from instruments file); Groww `trading_symbol`+exchange+segment. The resolver is an adapter-owned component with a cached master file and a `UNKNOWN_SYMBOL` failure before any order is sent.

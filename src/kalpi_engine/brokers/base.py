@@ -202,9 +202,7 @@ class HttpBrokerAdapter(BrokerAdapter, ABC):
             raise err from result
         raise err
 
-    async def request(
-        self, method: str, url: str, *, placing: bool = False, **kwargs: Any
-    ) -> Any:
+    async def request(self, method: str, url: str, *, placing: bool = False, **kwargs: Any) -> Any:
         """Send, classify, raise on non-OK; return the parsed JSON body."""
         try:
             resp = await self.client.request(method, url, **kwargs)

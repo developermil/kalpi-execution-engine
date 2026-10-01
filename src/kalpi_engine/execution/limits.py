@@ -19,6 +19,10 @@ from kalpi_engine.domain.errors import RateLimited, TransientError
 
 log = logging.getLogger(__name__)
 
+# Float slack when expiring stamps: without it, stamp + window - now can round below the
+# clock's resolution, so the sleep never advances time and acquire() spins forever.
+_EPS_S = 1e-9
+
 RETRY_SAFE: tuple[type[Exception], ...] = (RateLimited, TransientError)
 
 
@@ -41,7 +45,7 @@ class RateLimiter:
 
     A classic token bucket of capacity r admits up to 2r calls across a 1s boundary (full
     bucket + refill), which would breach a broker's hard per-second cap; the window log does not.
-    Fractional rates round down (2.5/s -> 2/s); rates below 1/s become 1 call per 1/rate s.
+    Fractional rates round down (2.5/s -> 2/s); rates below 1/s become 1 call per 1/rate s (D38).
     """
 
     def __init__(self, per_second: float, clock: Clock) -> None:
@@ -49,8 +53,9 @@ class RateLimiter:
             raise ValueError("per_second must be > 0")
         if per_second >= 1:
             self.n, self.window_s = math.floor(per_second), 1.0
-        else:
+        else:  # never round a sub-1/s rate down to 0 calls (D38)
             self.n, self.window_s = 1, 1.0 / per_second
+        assert self.n >= 1
         self._clock = clock
         self._stamps: deque[float] = deque()
         self._lock = asyncio.Lock()
@@ -59,12 +64,12 @@ class RateLimiter:
         async with self._lock:  # FIFO among waiters; one sleeper at a time
             while True:
                 now = self._clock.now()
-                while self._stamps and now - self._stamps[0] >= self.window_s:
+                while self._stamps and now - self._stamps[0] >= self.window_s - _EPS_S:
                     self._stamps.popleft()
                 if len(self._stamps) < self.n:
                     self._stamps.append(now)
                     return
-                await self._clock.sleep(self._stamps[0] + self.window_s - now)
+                await self._clock.sleep(max(self._stamps[0] + self.window_s - now, _EPS_S))
 
 
 class LimiterRegistry:
