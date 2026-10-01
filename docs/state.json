@@ -16,5 +16,11 @@
     "evidence": "tests/unit/test_domain.py 50 passed (tags 8-20 alnum deterministic; 9 invalid-payload cases rejected; 14 run_status table rows; sell_failed over all 11 LegStatus); mypy strict domain/ clean (7 files); make check exit 0",
     "started": "2026-10-01T19:51+05:30",
     "status": "done"
+  },
+  "A4": {
+    "closed": "2026-10-01T20:02+05:30",
+    "evidence": "39 new tests pass: GET /v1/brokers lists paper with experimental/live_tested/market_order_verified; drop-in file test registers 'dropin' with no other edits; 24 classify cases cover every SPEC \u00a74 row; 10 Paper tests (place/get/find_by_tag + all fault hooks). make check exit 0 (93 tests); mypy strict clean on brokers/",
+    "started": "2026-10-01T19:58+05:30",
+    "status": "done"
   }
 }
