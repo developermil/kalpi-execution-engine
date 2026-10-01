@@ -1,14 +1,14 @@
 # HANDOFF (overwrite via /handoff; keep <=15 lines)
-Current bead: none in progress. Phase A 6/6, B 7/11 (B1-B5, B4a-c done), C 0/8. 575/1640 planned min done.
-Last green commit: 62cc08d docs(B4c): D39 + B6/B7 restart-resume (make check 223 passed; engine suite 61/61 x23)
-Next 3 steps: 1) /next-bead B6 (API; must start ResumeSweeper + recheck sweep in lifespan, restart test per done_when)
-  2) /next-bead B7 (fault-injection, I1-I8)  3) /next-bead C0 (deferred by human until after B4b/B4c; now unblocked)
-Open risks / human: elapsed ~H6:35 since first commit 15:31 -> past the H6:00 watch point (drop S*, trim E1 detail?) - ask.
-  F11 overrun on B4c fake clock logged (progress.md, D39). C0 was explicitly postponed by the human; confirm order B6 -> B7 -> C0.
+Current bead: none in progress. Phase A 6/6, B 8/11 (B6 done), C 0/8. 635/1640 planned min done.
+Last green commit: 72afcd1 docs D40-D43 (code: 4cb8919 feat(B6), make check 233 passed)
+Next 3 steps (order D43, encoded in beads deps): 1) /next-bead B7 (fault-injection I1-I8)
+  2) /gate G1  3) /next-bead E2 (compose + Postgres), then C0
+Open risks / human: pace judged vs 13:45 deadline (D42), not H-hours. S* kept (blocked behind G4).
 Learned (not in SPEC):
-- Executor.run() returns RunStatus | None (None = lease not ours or lost). ExecConfig holds owner + lease_ttl_s.
-- B6 needs an async factory Run -> Executor (load broker_sessions row, decrypt via TokenCipher, registry adapter) for
-  ResumeSweeper(execution/resume.py); recheck sweep = Reconciler.sweep(run_id) over repo.runs_with_due_rechecks().
-- Engine tests: use tests/engine/fakes.py Harness (clock.watch(sm)); never poll the DB in a wait loop (freezes fake time).
-- Paper fault added: timeout_before_accept_next. Leg writes go through execution/legs.py LegWriter (fenced).
-- Use the Write tool for multi-line Python source; bash heredocs with long Python were unreliable on this Windows shell.
+- Service layer = src/kalpi_engine/service.py Runtime: load_session (token+extra encrypted as one JSON blob),
+  make_executor/make_reconciler, launch(run), recheck_forever, resume_sweeper(); lifespan in main.py starts
+  notifier + resume sweep + recheck loop; app.state.runtime. Settings gained poll_interval_s, recheck_interval_s.
+- API tests: tests/unit/test_api.py (TestClient, real time, poll_interval 0.05); _stranded_run() helper builds
+  crashed/UNKNOWN runs; share one Registry across app instances so Paper accounts survive a "restart".
+- Error envelope + handlers in api/errors.py (ApiError); 422 multi-error code = VALIDATION_FAILED, schema = VALIDATION_ERROR.
+- README must include docs/LIMITATIONS.md items (E3 `what` updated).
