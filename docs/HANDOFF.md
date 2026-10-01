@@ -1,13 +1,14 @@
 # HANDOFF (overwrite via /handoff; keep <=15 lines)
-Current bead: none in progress. A 6/6, B 9/11 (B7 + gate G1 PASS), C 0/8. Ready: E2 (P0), B8, D1, E1.
-Last green commit: 1a95894 docs(G1) (code: 407093e test(B7), make check 258 passed, ~2.5 min)
-Next 3 steps (order D43): 1) /next-bead E2 (compose + Postgres)  2) /next-bead C0  3) continue C* adapters
-Open risks / human: pace vs 13:45 deadline (D42). make check is now ~156s; the B7 chaos suite takes ~104s
-  (20 seeds x 100 legs) - if it hurts, consider a `slow` marker (needs human OK; do not drop seeds silently).
+Current bead: none in progress. A 6/6, B 10/11, C 1/8 (C0 done), E 1/6 (E2 done). Ready: C1, C2 (P0), B8, D1, E1.
+Last green commit: 96ff599 feat(C0) (make check 295 passed ~4.5 min; make itest 3 passed ~5s + build)
+Next 3 steps: 1) /next-bead C1 Zerodha  2) /next-bead C2 Upstox  3) continue C3-C5 (one file + one fixture each)
+Open risks / human: pace vs 13:45 deadline (D42); make check ~270s (B7 chaos ~104s) - `slow` marker needs human OK.
 Learned (not in SPEC):
-- Chaos harness: tests/engine/test_faults.py ChaosPaper(PaperBroker) assigns faults per tag from seeded RNG
-  (reproducible despite concurrency); I3 probed in place_order by reading legs from DB; PRICES monkeypatched.
-- I8 randomised: tests/unit/test_restart_faults.py strands runs via `update(Leg).where(Leg.tag == ...)`;
-  OrderIntent.leg_id is NOT the DB Leg.id (matching on it silently updates 0 rows).
-- `pytest -p no:logging` removes caplog -> test_storage errors at setup; not a real failure.
-- G1 I5 measured by scanning events/outbox/DB bytes/DEBUG logs for the Paper token on seeds 0,7,19: absent.
+- New broker = brokers/<id>.py + tests/contract/fixtures/<id>.py with hooks listed in tests/contract/harness.py
+  docstring. Template: tests/contract/_dummy/{brokers,fixtures}/dummy.py (HttpBrokerAdapter + respx + InstrumentResolver).
+- Adapter instrument master: build `InstrumentResolver(fetch, parse)` in __init__, load it in `startup()` (Registry.startup
+  runs at lifespan, failures logged; resolve() loads lazily on miss, failed load not cached).
+- respx: re-registering the same route pattern replaces its response (tag_hit then tag_miss on GET /orders works).
+- make itest uses compose project `kalpi-itest` + docker-compose.itest.yml (test-only keys), down -v before/after;
+  app log tail in .itest-app.log. E2 asserts healthy runs have no `run.resumed` (stall detector; D44).
+- ruff isort puts `tests.*` imports as third-party in files under tests/contract/_dummy (harmless).
