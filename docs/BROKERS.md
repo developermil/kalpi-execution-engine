@@ -32,7 +32,7 @@ Legend: cell starting with `UNVERIFIED` = core fact not confirmed from a primary
 | Sandbox / test mode available | UNVERIFIED | Yes, orders only, 30-day token https://upstox.com/developer/api-documentation/sandbox/ | UNVERIFIED | UNVERIFIED | UNVERIFIED (none found) |
 
 ## Blocking-item triage (2026-10-01)
-BLOCKING = needed to build the adapter (token exchange, holdings qty, place-order + delivery code, status vocab, tag, rate limits, instrument master). Everything else UNVERIFIED (sandbox, pricing, MPP %, secondary error shapes, regulatory nuance, funds field semantics) is NON-BLOCKING. Retried with the official SDK sources: fyers, angelone, groww. Instrument masters for fyers and angelone verified by downloading them. zerodha and upstox not retried (human decision). Defensive defaults for the remaining items are in each broker note (D19).
+BLOCKING = needed to build the adapter (token exchange, holdings qty, place-order + delivery code, status vocab, tag, rate limits, instrument master). Everything else UNVERIFIED (sandbox, pricing, MPP %, secondary error shapes, regulatory nuance, funds field semantics) is NON-BLOCKING. Retried with the official SDK sources: fyers, angelone, groww. Instrument masters for fyers and angelone verified by downloading them. zerodha and upstox not retried (human decision); zerodha G0 = ADJUST (F1 steps 2-3). Defensive defaults for the remaining items are in the fyers, angelone, groww and zerodha notes (D19).
 
 | Broker | Blocking before | Blocking after | Still blocking (reason) | Non-blocking |
 |---|---|---|---|---|

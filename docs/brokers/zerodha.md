@@ -15,6 +15,11 @@ Docs: https://kite.trade/docs/connect/v3/ (user, orders, portfolio, exceptions, 
 - **12. Errors**: JSON `{"status":"error","message":"...","error_type":"<Exception>"}`. 403 + TokenException = session expired -> re-login. 429 = rate limit (Retry-After header UNVERIFIED). Rejects: OrderException / InputException (400). Insufficient funds: MarginException; insufficient holdings: HoldingException. 502/503/504 = OMS/gateway trouble (ambiguous for placement). Src: https://kite.trade/docs/connect/v3/exceptions/
 - **13. Sandbox**: UNVERIFIED (none found in official docs).
 
+## Defensive defaults (remaining BLOCKING items, DECISIONS D19)
+- **Auth header, base host, `variety` list**: F1 step 2. Take these from the official `kiteconnect` SDK, either by wrapping it with `asyncio.to_thread` for this broker only or by mirroring its constants. Until a real call succeeds, send only `variety=regular`.
+- **Full status list**: COMPLETE -> FILLED, REJECTED -> REJECTED, CANCELLED -> CANCELLED, OPEN and interim states (VALIDATION PENDING, OPEN PENDING, ...) -> OPEN. PARTIAL when `filled_quantity` > 0 on a non-terminal status. Any other string becomes non-terminal and, at timeout, UNKNOWN. Never FILLED, never resubmitted.
+- **F1 step 3**: ship with `experimental=true`, contract tests and a README disclosure unless live-tested.
+
 ## Gotchas
 - No native PARTIAL status; derive from filled/pending quantity.
 - 5xx/504 on place_order is ambiguous: reconcile via `GET /orders` + tag, never resubmit.
