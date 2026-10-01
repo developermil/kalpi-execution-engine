@@ -10,5 +10,11 @@
     "evidence": "compose up --build: /healthz 200 in 2s after start, app runs as non-root uid 'app', db healthy; make check exit 0 (ruff, mypy domain, 2 tests pass); Dockerfile pins --workers 1",
     "started": "2026-10-01T19:36+05:30",
     "status": "done"
+  },
+  "A3": {
+    "closed": "2026-10-01T19:54+05:30",
+    "evidence": "tests/unit/test_domain.py 50 passed (tags 8-20 alnum deterministic; 9 invalid-payload cases rejected; 14 run_status table rows; sell_failed over all 11 LegStatus); mypy strict domain/ clean (7 files); make check exit 0",
+    "started": "2026-10-01T19:51+05:30",
+    "status": "done"
   }
 }
