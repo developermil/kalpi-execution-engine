@@ -41,6 +41,12 @@
     "started": "2026-10-01T20:16+05:30",
     "status": "done"
   },
+  "B3": {
+    "closed": "2026-10-01T20:44+05:30",
+    "evidence": "tests/engine/test_limits.py 14 passed (fake clock): 10/s limiter max 10 calls in any 1s window over 200 calls, sequential and 200 concurrent; Retry-After 3s honoured (capped 8s); AMBIGUOUS/REJECTED/INVALID/AUTH_EXPIRED called exactly once; RETRY_SAFE gives up at max_attempts; semaphore peak 3; limits.py coverage 95%; make check 169 passed",
+    "started": "2026-10-01T20:42+05:30",
+    "status": "done"
+  },
   "G0": {
     "closed": "2026-10-01T20:07+05:30",
     "evidence": "Row1 PASS: spike 5/5 FILLED via real port in 0.007s, port unchanged by A5. Row2 ADJUST x5 (blocking UNVERIFIED: fyers 3, upstox 3, zerodha 4, groww 4, angelone 5; none >6): F1 steps 2-3 recorded per broker in BROKERS.md triage and enforced by C1-C5 done_when (experimental=true, live_tested=false, SDK constants only, never wrap SDK place_order). Row3 ADJUST: elapsed H4:37 since first commit 15:31 (>H4:30): D1 cut to F12 minimal page, est 90->45m (D37). Verdict ADJUST, actions done (D22/D33)",
