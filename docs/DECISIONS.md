@@ -39,6 +39,7 @@ Format: **Choice** · why · cost/trade-off · revisit if. Changing a decision =
 | D33 | **Every gate closes on PASS, or ADJUST with that row's actions done and recorded**; ABORT stops and escalates. Extends D22 to G1–G4; G4 audits R1–R12 (plan-critic #19) | PASS-only gates (deadlock) |
 | D34 | **HTTP 200 with an error body**: known code / `status:false` -> `REJECTED` or `AUTH_EXPIRED`; `place_order` 200 with unparseable body or no order id -> `AMBIGUOUS`; one contract case per adapter (plan-critic #20). Extends D23 | Trust HTTP status only |
 | D35 | **Scope cuts for slack**: instrument master loaded at startup only (refresh = restart; amends D13 "daily refresh"); adaptive concurrency halving moved to P1 bead B8 (amends D10) (plan-critic #22) | Keep both in P0 |
+| D36 | **Non-terminal legs at finalisation count as in doubt**: `run_status()` treats `PLANNED`/`SUBMITTING`/`SUBMITTED` like `UNKNOWN`, so a run with any such leg is `COMPLETED_WITH_FAILURES`, never `FAILED` (an order may exist). Executor should map them first (D30/D32); this is the backstop. Pinned by `test_run_status_non_terminal_never_failed`. Extends D28 | Treat as `FAILED`; raise on non-terminal input |
 
 ## D1 — Broker integration approach (the one the reviewers will probe)
 - **Choice:** own thin adapters on `httpx`.

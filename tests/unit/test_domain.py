@@ -133,11 +133,17 @@ def test_holding_has_sellable_qty() -> None:
         ([L.FILLED, L.REJECTED], R.COMPLETED_WITH_FAILURES),
         ([L.FILLED, L.SKIPPED], R.COMPLETED_WITH_FAILURES),
         ([L.FILLED, L.PARTIAL], R.COMPLETED_WITH_FAILURES),
-        ([L.SUBMITTED, L.FAILED], R.COMPLETED_WITH_FAILURES),  # never FAILED while in doubt
     ],
 )
 def test_run_status_table(legs: list[L], expected: R) -> None:
     assert run_status(legs) is expected
+
+
+@pytest.mark.parametrize("pending", [L.PLANNED, L.SUBMITTING, L.SUBMITTED])
+def test_run_status_non_terminal_never_failed(pending: L) -> None:
+    """D36: an order may exist for a non-terminal leg, so the run must not report FAILED."""
+    assert run_status([pending]) is R.COMPLETED_WITH_FAILURES
+    assert run_status([pending, L.REJECTED, L.SKIPPED]) is R.COMPLETED_WITH_FAILURES
 
 
 def test_run_status_requires_legs() -> None:
