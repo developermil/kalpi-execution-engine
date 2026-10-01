@@ -24,7 +24,7 @@ Task graph lives in `docs/beads.toml` (use `python scripts/beads.py ready|show|c
 |---|---|---|---|
 | A5 spike prints 5 FILLED legs via the real port | yes, <5 s | works but port needed changes -> update SPEC §4 then continue | cannot express Paper through the port -> redesign port before anything else |
 | BROKERS.md BLOCKING UNVERIFIED items per broker (D18, D22) | <=2 each | 3–6 for a broker -> apply F1 cascade to that broker | >=3 brokers with >6 -> F1 step 4 (flag experimental, tell human) |
-| Elapsed since start | <=H4:30 | H4:30–6:00 -> cut D1 to minimal (F12) | >H6:00 -> drop S*, drop E1 detail, tell human |
+| Elapsed since start (stale after G0; pace now vs 13:45 deadline, D42) | <=H4:30 | H4:30–6:00 -> cut D1 to minimal (F12) | >H6:00 -> drop S*, drop E1 detail, tell human |
 
 G0 closes on PASS, or ADJUST with the F1 actions recorded per broker; never ABORT (D22). The verdict is recorded only by `/gate` after A5 exists.
 

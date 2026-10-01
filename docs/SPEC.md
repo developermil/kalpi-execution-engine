@@ -20,7 +20,7 @@ tests/ unit/ contract/ engine/ integration/
 Dependency rule: `domain` imports nothing internal; `planner` imports `domain`; `execution` imports `domain`, `brokers.base`, `storage`; `api` imports everything via service layer. No broker module imports another broker module.
 
 ## 2. HTTP API
-Auth to our API: `X-API-Key` (maps to `user_id`). All bodies JSON. Errors: `{"error":{"code","message","details"}}`.
+Auth to our API: `X-API-Key` (maps to `user_id`). Exceptions: `GET /v1/brokers` is public (metadata only, D40); `GET /v1/sessions/callback` is authenticated by the one-time OAuth `state` (D41); `/healthz`, `/readyz`, `/mock/webhook` (HMAC) are not under `/v1`. All bodies JSON. Errors: `{"error":{"code","message","details"}}`.
 
 | Method & path | Purpose |
 |---|---|
