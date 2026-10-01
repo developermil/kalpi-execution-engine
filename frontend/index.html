@@ -43,7 +43,7 @@
   <section id="s-connect">
     <strong>1. Connect</strong>
     <label for="apikey">API key (X-API-Key)</label>
-    <input id="apikey" value="demo-key" autocomplete="off">
+    <input id="apikey" value="change-me-demo-key" autocomplete="off">
     <label for="broker">Broker</label>
     <select id="broker"></select>
     <div id="brokerinfo" class="muted"></div>
@@ -97,6 +97,13 @@ async function api(method, path, body, headers = {}) {
   return data;
 }
 function showErr(e) {
+  const code = e.data && e.data.error && e.data.error.code;
+  if (e.status === 401 && code !== "SESSION_EXPIRED") {
+    $("msg").innerHTML = '<p class="err">401 Unauthorized: check your API key (X-API-Key). ' +
+      "It must match API_KEYS in the server's .env; if there is no .env yet, see the README first-run setup.</p>";
+    return;
+  }
+  if (code === "SESSION_EXPIRED") { sessionId = null; $("session").textContent = "session expired, connect again"; }
   const d = (e.data && e.data.error && e.data.error.details) || [];
   $("msg").innerHTML = `<p class="err">${esc(e.message)}</p>` +
     (Array.isArray(d) ? d.map((i) => `<div class="err">${esc(i.code)}: ${esc(i.message)}</div>`).join("") : "");

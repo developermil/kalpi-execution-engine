@@ -8,3 +8,4 @@
 - Groww auth expiry: only HTTP 401 maps to AuthExpired; the `GA###` expiry codes are unconfirmed, so an expired Groww token may surface as a rejected call instead of a re-login prompt.
 - AngelOne: X-ClientLocalIP / X-ClientPublicIP / X-MACAddress come from ANGELONE_CLIENT_LOCAL_IP / ANGELONE_CLIENT_PUBLIC_IP / ANGELONE_MAC; login fails with a clear error if unset. DELIVERY product code, order-book field names and status vocabulary are UNVERIFIED.
 - All five real broker adapters are `experimental=true`, `live_tested=false`: contract-tested against mocked HTTP only.
+- First-run setup is required: `cp .env.example .env`, generate `FERNET_KEY` (command in `.env.example`), set `API_KEYS` (e.g. `demo:change-me-demo-key`; the UI key box must hold the part after the colon), then `docker compose up`. Without `.env` every `/v1` call (and the UI) returns 401/503; the UI now says "check your API key" on a 401. E3 (README) must repeat these steps.
