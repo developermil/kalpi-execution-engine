@@ -4,6 +4,7 @@ Needs `make itest` (which brings the stack up with docker-compose.itest.yml). Va
 must match that override file.
 """
 
+import os
 import subprocess
 import time
 import uuid
@@ -15,7 +16,7 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-BASE = "http://127.0.0.1:8000"
+BASE = f"http://127.0.0.1:{os.environ.get('APP_PORT', '8000')}"  # APP_PORT: see docker-compose.yml
 H = {"X-API-Key": "itest-key"}
 TERMINAL = {"COMPLETED", "COMPLETED_WITH_FAILURES", "FAILED"}
 COMPOSE = ["docker", "compose", "-p", "kalpi-itest",
