@@ -71,6 +71,12 @@
     "started": "2026-10-01T21:02+05:30",
     "status": "done"
   },
+  "B6": {
+    "closed": "2026-10-01T22:13+05:30",
+    "evidence": "tests/unit/test_api.py 10 passed (5/5 reruns): login-url state + callback; bad/missing/replayed state 400 INVALID_STATE; valid callback stores Fernet token, expires_at, 303 /ui?session_id; POST /v1/sessions paper + respx creds broker -> {session_id,expires_at}, DB dump has no pin/totp/jwt/extras; preview plans SELL->BUY, Paper place_calls 0; MARKET_ORDER_UNVERIFIED x2 on unverified broker; 422 VALIDATION_FAILED/VALIDATION_ERROR -> 0 runs/legs; 401 UNAUTHORIZED/SESSION_EXPIRED (incl cross-user), 409 HOLDINGS_EXIST envelopes; 202 -> COMPLETED, same key+body 200 same run, diff body 422 IDEMPOTENCY_KEY_REUSED; /v1/brokers flags; restart resumes stranded SUBMITTING run (run.resumed, 1 order per tag); lifespan recheck adopts UNKNOWN leg. api+service cov 90%. make check 233 passed",
+    "started": "2026-10-01T22:06+05:30",
+    "status": "done"
+  },
   "G0": {
     "closed": "2026-10-01T20:07+05:30",
     "evidence": "Row1 PASS: spike 5/5 FILLED via real port in 0.007s, port unchanged by A5. Row2 ADJUST x5 (blocking UNVERIFIED: fyers 3, upstox 3, zerodha 4, groww 4, angelone 5; none >6): F1 steps 2-3 recorded per broker in BROKERS.md triage and enforced by C1-C5 done_when (experimental=true, live_tested=false, SDK constants only, never wrap SDK place_order). Row3 ADJUST: elapsed H4:37 since first commit 15:31 (>H4:30): D1 cut to F12 minimal page, est 90->45m (D37). Verdict ADJUST, actions done (D22/D33)",

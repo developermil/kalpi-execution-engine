@@ -65,6 +65,11 @@ async def get_run_by_key(s: AsyncSession, user_id: str, key: str) -> Run | None:
     return await s.scalar(_fresh(stmt))
 
 
+async def list_runs(s: AsyncSession, user_id: str, limit: int) -> list[Run]:
+    stmt = select(Run).where(Run.user_id == user_id).order_by(Run.created_at.desc()).limit(limit)
+    return list(await s.scalars(_fresh(stmt)))
+
+
 def _existing(run: Run, request_hash: str) -> CreatedRun:
     if run.request_hash != request_hash:
         raise IdempotencyKeyReused(f"Idempotency-Key reused with a different body (run {run.id})")

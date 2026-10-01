@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     max_qty_per_order: int = Field(default=100_000, gt=0)
     max_concurrency: int = Field(default=5, gt=0)
     lease_ttl_s: int = Field(default=30, gt=0)
+    poll_interval_s: float = Field(default=1.0, gt=0)
+    recheck_interval_s: float = Field(default=30.0, gt=0)
     log_level: str = "INFO"
 
 

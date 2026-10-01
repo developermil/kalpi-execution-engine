@@ -8,10 +8,11 @@ from sqlalchemy import text
 
 from kalpi_engine import __version__
 from kalpi_engine.api import brokers as brokers_api
-from kalpi_engine.api import mock_webhook
+from kalpi_engine.api import errors, executions, mock_webhook, sessions
 from kalpi_engine.brokers.registry import Registry, get_registry
 from kalpi_engine.config import Settings, get_settings
 from kalpi_engine.notify.worker import Notifier
+from kalpi_engine.service import Runtime
 from kalpi_engine.storage.db import create_all, make_engine, make_sessionmaker
 
 
@@ -28,10 +29,17 @@ def create_app(settings: Settings | None = None, registry: Registry | None = Non
             notifier = Notifier(
                 app.state.sessionmaker, client, secret=settings.webhook_secret.get_secret_value()
             )
-            task = asyncio.create_task(notifier.run_forever(stop))
+            # Resume sweep runs at startup and every LEASE_TTL_S: stranded runs restart here.
+            tasks = [
+                asyncio.create_task(notifier.run_forever(stop)),
+                asyncio.create_task(runtime.resume_sweeper().run_forever(stop)),
+                asyncio.create_task(runtime.recheck_forever(stop)),
+            ]
+            app.state.background = tasks
             yield
             stop.set()
-            await task
+            await asyncio.gather(*tasks)
+            await runtime.shutdown()
         await registry.aclose()
         await engine.dispose()
 
@@ -40,7 +48,12 @@ def create_app(settings: Settings | None = None, registry: Registry | None = Non
     app.state.registry = registry
     app.state.engine = engine
     app.state.sessionmaker = make_sessionmaker(engine)
+    runtime = Runtime(settings, registry, app.state.sessionmaker)
+    app.state.runtime = runtime
+    errors.install(app)
     app.include_router(brokers_api.router)
+    app.include_router(sessions.router)
+    app.include_router(executions.router)
     app.include_router(mock_webhook.router)
 
     @app.get("/healthz", tags=["ops"])
