@@ -460,3 +460,10 @@ def test_recheck_sweep_runs_in_lifespan(settings: Settings, reg: Registry) -> No
 
         wait_for(leg0_filled)
     assert _orders_by_tag(reg) and sum(_orders_by_tag(reg).values()) == 1
+
+
+def test_ui_served_with_broker_select_and_buttons(client: TestClient) -> None:
+    r = client.get("/ui")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    for needle in ('id="broker"', 'id="connect"', 'id="preview"', 'id="execute"'):
+        assert needle in r.text

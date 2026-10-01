@@ -1,1 +1,190 @@
-<!doctype html><title>Kalpi Engine</title><p>UI placeholder (served at /ui in a later bead).</p>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kalpi Execution Engine</title>
+<style>
+  :root { --bg:#f7f7f5; --fg:#1b1b1a; --muted:#6b6b66; --card:#fff; --line:#dcdcd6;
+          --ok:#1a7f4b; --warn:#a15c00; --bad:#b3261e; --info:#1d5fb4; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ecece8; --muted:#9a9a93; --card:#1f1f1d; --line:#35352f;
+            --ok:#4cc38a; --warn:#e5a54b; --bad:#f2766d; --info:#6aa7f5; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui, sans-serif; }
+  main { max-width:880px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:8px 0 2px; } .sub { color:var(--muted); margin:0 0 14px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:8px;
+            padding:12px 14px; margin-bottom:12px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
+  select, input, textarea { width:100%; box-sizing:border-box; padding:7px; font:inherit;
+            color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:6px; }
+  textarea { font:13px/1.4 ui-monospace, Consolas, monospace; min-height:170px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  button { padding:8px 14px; font:inherit; border-radius:6px; cursor:pointer;
+           border:1px solid var(--line); background:var(--card); color:var(--fg); }
+  button.primary { background:var(--info); color:#fff; border-color:var(--info); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); }
+  .pill { padding:1px 8px; border-radius:10px; font-size:12px; border:1px solid currentColor; }
+  .FILLED,.COMPLETED { color:var(--ok); } .PARTIAL,.UNKNOWN,.COMPLETED_WITH_FAILURES { color:var(--warn); }
+  .REJECTED,.FAILED,.CANCELLED,.SKIPPED { color:var(--bad); }
+  .SUBMITTED,.SUBMITTING,.OPEN,.PLANNED,.RUNNING { color:var(--info); }
+  .err { color:var(--bad); } .warnmsg { color:var(--warn); } .muted { color:var(--muted); font-size:12px; }
+  pre { overflow:auto; font-size:12px; background:var(--bg); padding:8px; border-radius:6px; }
+  .tag { font-size:12px; color:var(--warn); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Kalpi Execution Engine</h1>
+  <p class="sub">Minimal demo UI (D37): connect a broker, preview the plan, execute, watch the legs.</p>
+
+  <section id="s-connect">
+    <strong>1. Connect</strong>
+    <label for="apikey">API key (X-API-Key)</label>
+    <input id="apikey" value="demo-key" autocomplete="off">
+    <label for="broker">Broker</label>
+    <select id="broker"></select>
+    <div id="brokerinfo" class="muted"></div>
+    <div id="creds"></div>
+    <div class="row"><button id="connect" class="primary">Connect</button>
+      <span id="session" class="muted">not connected</span></div>
+  </section>
+
+  <section id="s-plan">
+    <strong>2. Instructions</strong>
+    <label for="mode">Mode</label>
+    <select id="mode"><option>REBALANCE</option><option>FIRST_TIME</option></select>
+    <label for="payload">Payload (JSON: options + instructions)</label>
+    <textarea id="payload" spellcheck="false"></textarea>
+    <div class="row"><button id="preview">Preview</button>
+      <button id="execute" class="primary" disabled>Execute</button></div>
+    <div id="msg"></div>
+    <div id="plan"></div>
+  </section>
+
+  <section id="s-results" hidden>
+    <strong>3. Results</strong> <span id="runstatus"></span>
+    <div id="legs"></div>
+    <div id="notif"></div>
+  </section>
+</main>
+<script type="application/json" id="samples">
+{
+  "FIRST_TIME": { "options": { "order_type": "MARKET" }, "instructions": [
+    { "symbol": "RELIANCE", "action": "BUY", "quantity": 10 },
+    { "symbol": "TCS", "action": "BUY", "quantity": 5 }] },
+  "REBALANCE": { "options": { "order_type": "MARKET", "halt_on_sell_failure": false }, "instructions": [
+    { "symbol": "TCS", "action": "SELL", "quantity": 2 },
+    { "symbol": "INFY", "action": "REBALANCE", "side": "BUY", "quantity": 3 },
+    { "symbol": "HDFCBANK", "action": "BUY", "quantity": 4, "order_type": "LIMIT", "limit_price": 1650 }] }
+}
+</script>
+<script>
+const SAMPLES = JSON.parse(document.getElementById("samples").textContent);
+const $ = (id) => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+let sessionId = qs.get("session_id"), brokers = {}, previewOk = false, paperMode = null;
+if (qs.get("key")) $("apikey").value = qs.get("key");
+
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+async function api(method, path, body, headers = {}) {
+  const r = await fetch(path, { method, headers: { "X-API-Key": $("apikey").value, "Content-Type": "application/json", ...headers },
+    body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error((data.error && data.error.message) || r.statusText), { data, status: r.status });
+  return data;
+}
+function showErr(e) {
+  const d = (e.data && e.data.error && e.data.error.details) || [];
+  $("msg").innerHTML = `<p class="err">${esc(e.message)}</p>` +
+    (Array.isArray(d) ? d.map((i) => `<div class="err">${esc(i.code)}: ${esc(i.message)}</div>`).join("") : "");
+}
+function setSession(id, label) { sessionId = id; $("session").textContent = label || `session ${id.slice(0, 8)}…`; }
+
+async function init() {
+  const list = await (await fetch("/v1/brokers")).json();
+  list.forEach((b) => { brokers[b.id] = b; $("broker").add(new Option(b.name, b.id)); });
+  $("broker").value = brokers.paper ? "paper" : list[0].id;
+  onBroker(); onMode();
+  if (sessionId) setSession(sessionId);
+  if (qs.get("run_id")) await showRun(qs.get("run_id"), false);
+}
+function onBroker() {
+  const b = brokers[$("broker").value];
+  $("brokerinfo").innerHTML = `${esc(b.auth_mode)}` + (b.experimental ? ' · <span class="tag">experimental' + (b.live_tested ? "" : ", not live-tested") + "</span>" : "") +
+    (b.requires_static_ip ? " · static IP required" : "");
+  $("creds").innerHTML = b.auth_mode === "OAUTH_REDIRECT" ? '<div class="muted">You will be redirected to the broker to log in.</div>'
+    : (b.credential_fields || []).map((f) => `<label>${esc(f)}</label><input data-cred="${esc(f)}" type="password" autocomplete="off">`).join("");
+}
+function onMode() {
+  $("payload").value = JSON.stringify(SAMPLES[$("mode").value], null, 2);
+  // Paper seeds holdings only for REBALANCE; reconnect so the account matches the mode.
+  if (paperMode && paperMode !== $("mode").value) $("connect").click();
+}
+$("broker").onchange = onBroker; $("mode").onchange = onMode;
+
+$("connect").onclick = async () => {
+  $("msg").textContent = "";
+  const b = brokers[$("broker").value];
+  try {
+    if (b.auth_mode === "OAUTH_REDIRECT") {
+      const r = await api("GET", `/v1/sessions/login-url?broker=${b.id}`);
+      location.href = r.login_url; return;
+    }
+    const credentials = {};
+    document.querySelectorAll("[data-cred]").forEach((i) => { if (i.value) credentials[i.dataset.cred] = i.value; });
+    if (b.id === "paper" && $("mode").value === "REBALANCE") credentials.profile = "demo"; // seeded holdings
+    const r = await api("POST", "/v1/sessions", { broker: b.id, credentials });
+    setSession(r.session_id, `connected (${b.id}), expires ${r.expires_at}`);
+    paperMode = b.id === "paper" ? $("mode").value : null;
+  } catch (e) { showErr(e); }
+};
+function body() {
+  const p = JSON.parse($("payload").value);
+  return { session_id: sessionId, mode: $("mode").value, ...p };
+}
+$("preview").onclick = async () => {
+  $("msg").textContent = ""; $("plan").innerHTML = ""; previewOk = false; $("execute").disabled = true;
+  if (!sessionId) { $("msg").innerHTML = '<p class="err">Connect first.</p>'; return; }
+  try {
+    const r = await api("POST", "/v1/executions/preview", body());
+    $("plan").innerHTML = "<table><tr><th>#</th><th>Phase</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Type</th></tr>" +
+      r.legs.map((l) => `<tr><td>${l.leg_index}</td><td>${l.phase}</td><td>${esc(l.symbol)}</td><td>${l.side}</td><td>${l.quantity}</td><td>${l.order_type}${l.limit_price ? " @" + l.limit_price : ""}</td></tr>`).join("") + "</table>";
+    $("msg").innerHTML = r.warnings.map((w) => `<div class="warnmsg">⚠ ${esc(w.code)}: ${esc(w.message)}</div>`).join("");
+    previewOk = true; $("execute").disabled = false;
+  } catch (e) { showErr(e); }
+};
+$("execute").onclick = async () => {
+  if (!previewOk || !confirm("Place these orders for real at the connected broker?")) return;
+  $("execute").disabled = true;
+  try {
+    const key = crypto.randomUUID();
+    const r = await api("POST", "/v1/executions", body(), { "Idempotency-Key": key });
+    await showRun(r.run_id, true);
+  } catch (e) { showErr(e); }
+};
+const TERMINAL = ["COMPLETED", "COMPLETED_WITH_FAILURES", "FAILED"];
+async function showRun(runId, poll) {
+  $("s-results").hidden = false;
+  for (;;) {
+    const run = await api("GET", `/v1/executions/${runId}`);
+    $("runstatus").innerHTML = `<span class="pill ${run.status}">${run.status}</span> <span class="muted">${runId}</span>`;
+    $("legs").innerHTML = "<table><tr><th>#</th><th>Phase</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Status</th><th>Filled</th><th>Avg</th><th>Note</th></tr>" +
+      run.legs.map((l) => `<tr><td>${l.leg_index}</td><td>${l.phase}</td><td>${esc(l.symbol)}</td><td>${l.side}</td><td>${l.quantity}</td><td><span class="pill ${l.status}">${l.status}</span></td><td>${l.filled_qty}</td><td>${l.avg_price ?? ""}</td><td>${esc(l.message)}</td></tr>`).join("") + "</table>";
+    if (TERMINAL.includes(run.status)) {
+      const last = run.notifications[run.notifications.length - 1];
+      $("notif").innerHTML = "<p><strong>Notification</strong> " + run.notifications.map((n) => `<span class="muted">${esc(n.url || "console")}: ${n.status} (${n.attempts} attempts)</span>`).join(" ") +
+        "</p><pre>" + esc(JSON.stringify(last ? last.payload : {}, null, 2)) + "</pre>";
+      if (!qs.get("run_id")) $("execute").disabled = false;
+      return;
+    }
+    if (!poll) return;
+    await new Promise((r) => setTimeout(r, 700));
+  }
+}
+init().catch((e) => { $("msg").innerHTML = `<p class="err">${esc(e.message)}</p>`; });
+</script>
+</body>
+</html>

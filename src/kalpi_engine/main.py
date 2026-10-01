@@ -8,7 +8,7 @@ from sqlalchemy import text
 
 from kalpi_engine import __version__
 from kalpi_engine.api import brokers as brokers_api
-from kalpi_engine.api import errors, executions, mock_webhook, sessions
+from kalpi_engine.api import errors, executions, mock_webhook, sessions, ui
 from kalpi_engine.brokers.registry import Registry, get_registry
 from kalpi_engine.config import Settings, get_settings
 from kalpi_engine.notify.worker import Notifier
@@ -56,6 +56,7 @@ def create_app(settings: Settings | None = None, registry: Registry | None = Non
     app.include_router(sessions.router)
     app.include_router(executions.router)
     app.include_router(mock_webhook.router)
+    app.include_router(ui.router)
 
     @app.get("/healthz", tags=["ops"])
     async def healthz() -> dict[str, str]:

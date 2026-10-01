@@ -75,6 +75,7 @@ class NotificationView(BaseModel):
     url: str | None
     status: str
     attempts: int
+    payload: dict[str, Any] = {}  # the webhook JSON (SPEC §6); the UI shows it
 
 
 class RunView(BaseModel):
@@ -249,7 +250,10 @@ async def get_execution(run_id: str, rt: Rt, user: User) -> RunView:
         EventView(seq=e.seq, ts=e.ts, type=e.type, payload=e.payload_json) for e in events
     ]
     view.notifications = [
-        NotificationView(url=o.url, status=o.status, attempts=o.attempts) for o in outbox
+        NotificationView(
+            url=o.url, status=o.status, attempts=o.attempts, payload=o.payload_json
+        )
+        for o in outbox
     ]
     return view
 

@@ -121,6 +121,12 @@
     "started": "2026-10-02T01:00+05:30",
     "status": "done"
   },
+  "D1": {
+    "closed": "2026-10-02T01:28+05:30",
+    "evidence": "ui_smoke.py rc=0: GET /ui 200 + broker select + 3 buttons; FIRST_TIME (2 legs) and REBALANCE (3 legs) on Paper via UI's API calls both COMPLETED, all FILLED, notification payload shown; 3 screenshots in docs/img/ (headless Chrome); added NotificationView.payload + /ui route; make check 367 passed",
+    "started": "2026-10-02T01:17+05:30",
+    "status": "done"
+  },
   "E2": {
     "closed": "2026-10-01T23:33+05:30",
     "evidence": "make itest rc=0 x3 on fresh compose stack (down -v first): 3 passed in ~5-9s - FIRST_TIME 2 legs FILLED + signed webhook received at /mock/webhook; REBALANCE SELL,SELL->BUY all FILLED, no run.resumed; dup Idempotency-Key 202 then 200 same run_id, diff body 422 IDEMPOTENCY_KEY_REUSED; Postgres: 1 runs row per key, raw duplicate INSERT rejected by unique constraint. Found+fixed event-seq race on Postgres (D44; was 115s stall). make check 258 passed",
