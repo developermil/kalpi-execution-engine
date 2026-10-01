@@ -40,6 +40,7 @@ Format: **Choice** · why · cost/trade-off · revisit if. Changing a decision =
 | D34 | **HTTP 200 with an error body**: known code / `status:false` -> `REJECTED` or `AUTH_EXPIRED`; `place_order` 200 with unparseable body or no order id -> `AMBIGUOUS`; one contract case per adapter (plan-critic #20). Extends D23 | Trust HTTP status only |
 | D35 | **Scope cuts for slack**: instrument master loaded at startup only (refresh = restart; amends D13 "daily refresh"); adaptive concurrency halving moved to P1 bead B8 (amends D10) (plan-critic #22) | Keep both in P0 |
 | D36 | **Non-terminal legs at finalisation count as in doubt**: `run_status()` treats `PLANNED`/`SUBMITTING`/`SUBMITTED` like `UNKNOWN`, so a run with any such leg is `COMPLETED_WITH_FAILURES`, never `FAILED` (an order may exist). Executor should map them first (D30/D32); this is the backstop. Pinned by `test_run_status_non_terminal_never_failed`. Extends D28 | Treat as `FAILED`; raise on non-terminal input |
+| D37 | **G0 ADJUST on elapsed time (H4:35 at gate vs <=H4:30)**: per the G0 row, D1 is cut to the F12 minimal page (broker select + JSON textarea + Connect/Preview/Execute + leg polling; no CSV upload or generated forms), est 90->45m; ui_smoke still must reach COMPLETED for first-time and rebalance. README discloses the UI as minimal | Keep full D1 and eat buffer |
 
 ## D1 — Broker integration approach (the one the reviewers will probe)
 - **Choice:** own thin adapters on `httpx`.
