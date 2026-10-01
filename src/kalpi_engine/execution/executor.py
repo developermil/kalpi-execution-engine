@@ -37,6 +37,7 @@ from kalpi_engine.execution.limits import (
     call_with_retry,
 )
 from kalpi_engine.execution.reconcile import Reconciler, next_recheck
+from kalpi_engine.logging import log_context
 from kalpi_engine.storage import repo
 from kalpi_engine.storage.db import Leg
 
@@ -102,7 +103,11 @@ class Executor:
             return None
         self.lease.start_renewing()
         try:
-            return await self._execute(run_id)
+            with log_context(run_id=run_id):
+                log.info("run started", extra={"owner": self.cfg.owner})
+                status = await self._execute(run_id)
+                log.info("run finished", extra={"status": status.value})
+                return status
         except LeaseLost:
             log.warning("run %s: lease lost by %s; stopping", run_id, self.cfg.owner)
             return None
@@ -166,6 +171,10 @@ class Executor:
         await asyncio.gather(*(self._guarded(lg, poll_timeout_s) for lg in legs))
 
     async def _guarded(self, leg: Leg, poll_timeout_s: float) -> None:
+        with log_context(leg_id=leg.id):
+            await self._guarded_inner(leg, poll_timeout_s)
+
+    async def _guarded_inner(self, leg: Leg, poll_timeout_s: float) -> None:
         async with self._sem:
             if self._lease().lost:
                 return  # the next owner resumes this leg
@@ -192,6 +201,8 @@ class Executor:
             limit_price=leg.limit_price, tag=leg.tag,
         )  # fmt: skip
         sub = LegStatus.SUBMITTING
+        info = {"symbol": leg.symbol, "side": leg.side.value, "tag": leg.tag}
+        log.info("placing order", extra=info)
         try:
             order_id = await call_with_retry(
                 lambda: self.broker.place_order(self.session, intent),
