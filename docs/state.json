@@ -89,6 +89,12 @@
     "started": "2026-10-01T23:49+05:30",
     "status": "done"
   },
+  "C1": {
+    "closed": "2026-10-02T00:25+05:30",
+    "evidence": "contract suite 12 cases green for zerodha (77 contract+unit passed); checksum vector ok; market_protection=-1 asserted; zerodha.py 199 LOC, no SDK/to_thread; experimental=true live_tested=false (no live call); make check 315 passed",
+    "started": "2026-10-02T00:20+05:30",
+    "status": "done"
+  },
   "E2": {
     "closed": "2026-10-01T23:33+05:30",
     "evidence": "make itest rc=0 x3 on fresh compose stack (down -v first): 3 passed in ~5-9s - FIRST_TIME 2 legs FILLED + signed webhook received at /mock/webhook; REBALANCE SELL,SELL->BUY all FILLED, no run.resumed; dup Idempotency-Key 202 then 200 same run_id, diff body 422 IDEMPOTENCY_KEY_REUSED; Postgres: 1 runs row per key, raw duplicate INSERT rejected by unique constraint. Found+fixed event-seq race on Postgres (D44; was 115s stall). make check 258 passed",
