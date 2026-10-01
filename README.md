@@ -28,7 +28,9 @@ the file upload, pick [`docs/samples/rebalance.json`](docs/samples/rebalance.jso
 [`docs/samples/rebalance.csv`](docs/samples/rebalance.csv) with "Load portfolio from a file", then
 Preview. JSON is the same payload as the box (`options` + `instructions`, optional `mode`); CSV has
 columns `symbol, action, quantity` and optional `side, order_type, limit_price`. A malformed file
-shows an error naming the line and leaves the box unchanged.
+shows `Failed: <file> - <error>` (naming the line) next to the button and leaves the box
+unchanged; a good file shows `Loaded: <file> - N instructions (MODE)` until you load another
+file or edit the box by hand (`Edited manually`).
 API docs: <http://localhost:8000/docs>. Without a `.env` the API and UI answer 401/503.
 `docker compose down` stops it; `down -v` also deletes the Postgres volume.
 

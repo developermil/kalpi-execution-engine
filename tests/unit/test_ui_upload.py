@@ -94,6 +94,8 @@ def test_parsed_sample_previews_on_paper(client: TestClient, fname: str) -> None
 def test_ui_serves_file_input_and_parser(client: TestClient) -> None:
     page = client.get("/ui")
     assert 'id="file"' in page.text and ".json" in page.text and ".csv" in page.text
+    for needle in ('id="fileinfo"', "Loaded: ${f.name}", "Failed: ${f.name}", "Edited manually"):
+        assert needle in page.text
     js = client.get("/ui/portfolio.js")
     assert js.status_code == 200 and "text/javascript" in js.headers["content-type"]
     assert "parsePortfolioFile" in js.text
