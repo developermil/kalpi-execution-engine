@@ -47,6 +47,12 @@
     "started": "2026-10-01T20:42+05:30",
     "status": "done"
   },
+  "B4a": {
+    "closed": "2026-10-01T20:54+05:30",
+    "evidence": "tests/engine/test_executor.py 16 passed on Paper+fake clock: happy first-time COMPLETED; happy rebalance last sell leg.filled seq < first buy leg.submitting seq; 429 storm (12x) 5 legs FILLED, 5 distinct orders, 17 place calls; partial rejects COMPLETED_WITH_FAILURES, all rejected FAILED; OPEN-at-timeout and PARTIAL sell each listed in barrier.sell_failures: halt=true buys SKIPPED (1 place call), halt=false buys FILLED; AMBIGUOUS -> UNKNOWN, 1 place call; SUBMITTING committed before place_order (spy); every run status == run_status(legs). executor.py cov 91% (uncovered = AuthExpired/poll-error paths, B4b). make check 190 passed",
+    "started": "2026-10-01T20:50+05:30",
+    "status": "done"
+  },
   "G0": {
     "closed": "2026-10-01T20:07+05:30",
     "evidence": "Row1 PASS: spike 5/5 FILLED via real port in 0.007s, port unchanged by A5. Row2 ADJUST x5 (blocking UNVERIFIED: fyers 3, upstox 3, zerodha 4, groww 4, angelone 5; none >6): F1 steps 2-3 recorded per broker in BROKERS.md triage and enforced by C1-C5 done_when (experimental=true, live_tested=false, SDK constants only, never wrap SDK place_order). Row3 ADJUST: elapsed H4:37 since first commit 15:31 (>H4:30): D1 cut to F12 minimal page, est 90->45m (D37). Verdict ADJUST, actions done (D22/D33)",

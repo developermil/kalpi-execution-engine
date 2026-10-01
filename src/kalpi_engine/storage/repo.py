@@ -162,6 +162,11 @@ async def update_run(s: AsyncSession, fence: Fence, **values: Any) -> bool:
     return await _rowcount(s, stmt) == 1
 
 
+async def update_run_unfenced(s: AsyncSession, run_id: str, **values: Any) -> bool:
+    """Pre-lease callers only (B4a executor until B4c wires the lease); prefer update_run."""
+    return await _rowcount(s, update(Run).where(Run.id == run_id).values(**values)) == 1
+
+
 # ---------- legs ----------
 
 

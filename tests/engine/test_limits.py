@@ -20,21 +20,7 @@ from kalpi_engine.execution.limits import (
     RetryPolicy,
     call_with_retry,
 )
-
-
-class FakeClock:
-    def __init__(self) -> None:
-        self.t = 1000.0
-        self.sleeps: list[float] = []
-
-    def now(self) -> float:
-        return self.t
-
-    async def sleep(self, d: float) -> None:
-        self.sleeps.append(d)
-        target = self.t + d
-        await asyncio.sleep(0)
-        self.t = max(self.t, target)
+from tests.engine.fakes import FakeClock
 
 
 def max_in_window(ts: list[float], window: float = 1.0) -> int:
