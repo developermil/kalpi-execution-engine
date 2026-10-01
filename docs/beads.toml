@@ -210,7 +210,7 @@ est = 60
 model = "sonnet"
 title = "API layer: sessions, preview, execute (202), status, errors, API key"
 what = "Routers per SPEC §2, X-API-Key dependency, Idempotency-Key handling, uniform error envelope, OpenAPI examples, background launch of executor."
-done_when = "httpx ASGI tests: GET /v1/sessions/login-url returns login_url + state, callback with a wrong/missing state is rejected, a valid callback stores an encrypted token with expires_at and redirects; POST /v1/sessions (Paper and a credentials broker with respx) returns session_id + expires_at and persists no secret; preview shows plan without calling place_order and includes the V11 warning for a market_order_verified=false broker; a 422 validation failure creates no run row; execute returns 202 and the run reaches a terminal state; same Idempotency-Key + same body returns the same run; same key + different body returns 422 IDEMPOTENCY_KEY_REUSED; GET /v1/brokers includes experimental/live_tested/market_order_verified; 401/409/422 error shapes match SPEC."
+done_when = "httpx ASGI tests: GET /v1/sessions/login-url returns login_url + state, callback with a wrong/missing state is rejected, a valid callback stores an encrypted token with expires_at and redirects; POST /v1/sessions (Paper and a credentials broker with respx) returns session_id + expires_at and persists no secret; preview shows plan without calling place_order and includes the V11 warning for a market_order_verified=false broker; a 422 validation failure creates no run row; execute returns 202 and the run reaches a terminal state; same Idempotency-Key + same body returns the same run; same key + different body returns 422 IDEMPOTENCY_KEY_REUSED; GET /v1/brokers includes experimental/live_tested/market_order_verified; 401/409/422 error shapes match SPEC; resume and recheck sweeps start with the app lifespan, and a test proves a stranded SUBMITTING run is resumed after an app restart."
 if_fails = "F11"
 reqs = ["R4", "R5", "R6", "R7"]
 spec = "SPEC §2"
@@ -225,7 +225,7 @@ est = 50
 model = "sonnet"
 title = "Fault-injection suite (the money-safety proof)"
 what = "Randomised run: 100 legs with 20% 429, 5% ambiguous timeouts, 10% rejects, 5% partial fills, 3% late fills after a tag-lookup miss (filled after being marked UNKNOWN), seeded RNG; assert invariants after every run (see PLAN §Invariants). Repeat for 20 seeds."
-done_when = "20/20 seeds pass: zero duplicate orders at the Paper broker; every leg terminal or UNKNOWN; every late-filled order ends with its leg FILLED/PARTIAL via late reconcile and is never resubmitted; no buy submitted while a sell was unresolved; notification lists every non-filled leg and counts sum to total."
+done_when = "20/20 seeds pass: zero duplicate orders at the Paper broker; every leg terminal or UNKNOWN; every late-filled order ends with its leg FILLED/PARTIAL via late reconcile and is never resubmitted; no buy submitted while a sell was unresolved; notification lists every non-filled leg and counts sum to total; I8: a run stranded in SUBMITTING by an app restart is resumed by the lifespan sweeps (adopt by tag or UNKNOWN) with zero duplicate orders."
 if_fails = "F3"
 reqs = ["R9"]
 spec = "PLAN §Invariants"
