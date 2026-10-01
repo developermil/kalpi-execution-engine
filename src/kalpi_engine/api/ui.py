@@ -13,9 +13,19 @@ _CANDIDATES = (
 )
 
 
+def _serve(name: str, media_type: str) -> Response:
+    for d in _CANDIDATES:
+        if (d / name).is_file():
+            return FileResponse(d / name, media_type=media_type)
+    return HTMLResponse(f"UI file not found (frontend/{name})", status_code=404)
+
+
 @router.get("/ui")
 async def ui() -> Response:
-    for d in _CANDIDATES:
-        if (d / "index.html").is_file():
-            return FileResponse(d / "index.html", media_type="text/html")
-    return HTMLResponse("UI not found (frontend/index.html)", status_code=404)
+    return _serve("index.html", "text/html")
+
+
+@router.get("/ui/portfolio.js")
+async def portfolio_js() -> Response:
+    """File-upload parser (.json / .csv); a separate file so node can unit-test it."""
+    return _serve("portfolio.js", "text/javascript")

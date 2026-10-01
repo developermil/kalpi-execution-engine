@@ -1,0 +1,9 @@
+{
+  "mode": "REBALANCE",
+  "options": { "order_type": "MARKET", "halt_on_sell_failure": false },
+  "instructions": [
+    { "symbol": "TCS", "action": "SELL", "quantity": 2 },
+    { "symbol": "INFY", "action": "REBALANCE", "side": "BUY", "quantity": 3 },
+    { "symbol": "HDFCBANK", "action": "BUY", "quantity": 4, "order_type": "LIMIT", "limit_price": 1650 }
+  ]
+}

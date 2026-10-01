@@ -23,7 +23,12 @@ docker compose up --build -d      # drop -d to watch the logs
 curl localhost:8000/healthz       # {"status":"ok"}
 ```
 
-Then open <http://localhost:8000/ui> (API key box: `change-me-demo-key`, broker: Paper).
+Then open <http://localhost:8000/ui> (API key box: `change-me-demo-key`, broker: Paper). To try
+the file upload, pick [`docs/samples/rebalance.json`](docs/samples/rebalance.json) or
+[`docs/samples/rebalance.csv`](docs/samples/rebalance.csv) with "Load portfolio from a file", then
+Preview. JSON is the same payload as the box (`options` + `instructions`, optional `mode`); CSV has
+columns `symbol, action, quantity` and optional `side, order_type, limit_price`. A malformed file
+shows an error naming the line and leaves the box unchanged.
 API docs: <http://localhost:8000/docs>. Without a `.env` the API and UI answer 401/503.
 `docker compose down` stops it; `down -v` also deletes the Postgres volume.
 
@@ -154,7 +159,7 @@ need broker empanelment; that is outside this code. Details and sources: `docs/B
 
 ## What is tested vs mocked
 
-- **Tested (373 tests, `make check`):** planner (100% coverage), executor and fault injection on
+- **Tested (392 tests, `make check`):** planner (100% coverage), executor and fault injection on
   Paper (20 seeded chaos runs: at most one order per tag, sells before buys, no stuck legs; 5
   restart-mid-run seeds), idempotency, token encryption / no secrets in DB or logs, webhook signing
   and delivery, API envelopes, JSON logs with `run_id` and redaction, `/readyz`.
@@ -188,8 +193,11 @@ Full list with reasons: [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md). In short:
   (`--workers 1`); crash safety comes from the DB lease, not from multiple workers.
 - The instrument master is loaded once at startup (refresh = restart).
 - Adaptive concurrency halving after repeated 429 is not implemented (fixed bounded concurrency).
-- The UI is deliberately minimal: broker select, JSON textarea, Connect / Preview / Execute and
-  live leg status. **No file upload** and no per-broker generated forms.
+- The UI is deliberately minimal: broker select, file upload (.json / .csv, parsed in the
+  browser into the payload box), Connect / Preview / Execute and live leg status. No per-broker
+  generated forms. The parser is unit-tested under node (skipped if node is absent) and the
+  sample files are driven through the API by `ui_smoke.py`; the browser's file-picker click itself
+  is not automated (checked by hand only).
 - `GET /v1/brokers` is public (metadata only). First run needs `.env` (see Quick start).
 
 ## Requirements checklist
@@ -205,6 +213,6 @@ Full list with reasons: [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md). In short:
 | R7 | Python + FastAPI | `src/kalpi_engine/main.py`, `api/` |
 | R8 | Docker | `Dockerfile`, `docker-compose.yml` (app + Postgres); `make itest`, `scripts/demo.sh` |
 | R9 | Modularity, rate limits, failed trades | layering above; `execution/limits.py` (sliding-window limiter, `Retry-After`, RETRY_SAFE-only retry); write-ahead + tag reconciliation + lease; chaos tests. Gap: adaptive concurrency halving not built |
-| R10 | Bonus frontend | `frontend/index.html` at `/ui` (minimal, no file upload); `scripts/ui_smoke.py`, `docs/img/`; manual click-through on Paper |
+| R10 | Bonus frontend | `frontend/index.html` + `frontend/portfolio.js` at `/ui` (minimal; .json/.csv upload); `tests/unit/test_ui_upload.py`, `scripts/ui_smoke.py`, `docs/img/`; manual click-through on Paper |
 | R11 | Public repo + README | this file; the GitHub repo must be set to **public** before submission (it is currently private) |
 | R12 | Within 24h | tracked in `docs/progress.md` / git history; judged by the submitter |

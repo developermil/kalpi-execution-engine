@@ -56,6 +56,9 @@
     <strong>2. Instructions</strong>
     <label for="mode">Mode</label>
     <select id="mode"><option>REBALANCE</option><option>FIRST_TIME</option></select>
+    <label for="file">Load portfolio from a file (.json same as the box below, or .csv with columns
+      symbol, action, quantity and optional side, order_type, limit_price)</label>
+    <input id="file" type="file" accept=".json,.csv,application/json,text/csv">
     <label for="payload">Payload (JSON: options + instructions)</label>
     <textarea id="payload" spellcheck="false"></textarea>
     <div class="row"><button id="preview">Preview</button>
@@ -70,6 +73,7 @@
     <div id="notif"></div>
   </section>
 </main>
+<script src="/ui/portfolio.js"></script>
 <script type="application/json" id="samples">
 {
   "FIRST_TIME": { "options": { "order_type": "MARKET" }, "instructions": [
@@ -125,11 +129,30 @@ function onBroker() {
   $("creds").innerHTML = b.auth_mode === "OAUTH_REDIRECT" ? '<div class="muted">You will be redirected to the broker to log in.</div>'
     : (b.credential_fields || []).map((f) => `<label>${esc(f)}</label><input data-cred="${esc(f)}" type="password" autocomplete="off">`).join("");
 }
-function onMode() {
-  $("payload").value = JSON.stringify(SAMPLES[$("mode").value], null, 2);
+function syncPaper() {
   // Paper seeds holdings only for REBALANCE; reconnect so the account matches the mode.
   if (paperMode && paperMode !== $("mode").value) $("connect").click();
 }
+function onMode() {
+  $("payload").value = JSON.stringify(SAMPLES[$("mode").value], null, 2);
+  syncPaper();
+}
+$("file").onchange = async (ev) => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  $("msg").textContent = ""; $("plan").innerHTML = ""; previewOk = false; $("execute").disabled = true;
+  try {
+    const { mode, ...payload } = PortfolioFile.parsePortfolioFile(f.name, await f.text());
+    $("payload").value = JSON.stringify(payload, null, 2);
+    if (mode) {
+      if (!["FIRST_TIME", "REBALANCE"].includes(mode)) throw new Error('"mode" must be FIRST_TIME or REBALANCE.');
+      $("mode").value = mode; syncPaper();
+    }
+    $("msg").innerHTML = `<div class="muted">Loaded ${payload.instructions.length} instructions from ${esc(f.name)}. Review, then Preview.</div>`;
+  } catch (e) {
+    $("msg").innerHTML = `<p class="err">Could not load ${esc(f.name)}: ${esc(e.message)}</p>`;
+  } finally { ev.target.value = ""; }  // allow choosing the same file again
+};
 $("broker").onchange = onBroker; $("mode").onchange = onMode;
 
 $("connect").onclick = async () => {

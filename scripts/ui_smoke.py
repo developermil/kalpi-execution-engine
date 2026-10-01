@@ -40,27 +40,50 @@ def check(cond: bool, msg: str) -> None:
         raise SystemExit(1)
 
 
-def run_flow(c: httpx.Client, mode: str, profile: str | None, payload: dict) -> str:
+def run_flow(
+    c: httpx.Client, mode: str, profile: str | None, payload: dict, label: str | None = None
+) -> str:
+    name = label or mode
     creds = {"profile": profile} if profile else {}
     r = c.post("/v1/sessions", json={"broker": "paper", "credentials": creds})
-    check(r.status_code == 200, f"{mode}: connect -> session")
+    check(r.status_code == 200, f"{name}: connect -> session")
     body = {"session_id": r.json()["session_id"], "mode": mode, **payload}
     r = c.post("/v1/executions/preview", json=body)
     legs = r.json()["legs"] if r.status_code == 200 else []
-    check(bool(legs), f"{mode}: preview {len(legs)} legs")
+    check(bool(legs), f"{name}: preview {len(legs)} legs")
     r = c.post("/v1/executions", json=body, headers={"Idempotency-Key": str(uuid.uuid4())})
-    check(r.status_code == 202, f"{mode}: execute 202")
+    check(r.status_code == 202, f"{name}: execute 202")
     run_id = r.json()["run_id"]
     for _ in range(120):
         run = c.get(f"/v1/executions/{run_id}").json()
         if run["status"] in ("COMPLETED", "COMPLETED_WITH_FAILURES", "FAILED"):
             break
         time.sleep(0.5)
-    check(run["status"] == "COMPLETED", f"{mode}: run {run['status']} ({len(run['legs'])} legs)")
+    check(run["status"] == "COMPLETED", f"{name}: run {run['status']} ({len(run['legs'])} legs)")
     notes = run["notifications"]
-    check(bool(notes) and notes[-1]["payload"].get("run_id") == run_id, f"{mode}: payload shown")
-    check(all(leg["status"] == "FILLED" for leg in run["legs"]), f"{mode}: all legs FILLED")
+    check(bool(notes) and notes[-1]["payload"].get("run_id") == run_id, f"{name}: payload shown")
+    check(all(leg["status"] == "FILLED" for leg in run["legs"]), f"{name}: all legs FILLED")
     return str(run_id)
+
+
+def parse_sample(path: Path) -> dict | None:
+    """Parse a docs/samples file with the UI's own parser (frontend/portfolio.js) under node."""
+    node = shutil.which("node")
+    if not node:
+        return None
+    driver = (
+        "const P=require(process.argv[1]);"
+        "const [n,t]=JSON.parse(require('fs').readFileSync(0,'utf8'));"
+        "console.log(JSON.stringify(P.parsePortfolioFile(n,t)))"
+    )
+    out = subprocess.run(
+        [node, "-e", driver, str(ROOT / "frontend" / "portfolio.js")],
+        input=json.dumps([path.name, path.read_text(encoding="utf-8")]),
+        capture_output=True, text=True, check=True, timeout=30,
+    )  # fmt: skip
+    parsed: dict = json.loads(out.stdout)
+    parsed.pop("mode", None)
+    return parsed
 
 
 def screenshot(browser: str, url: str, out: Path) -> None:
@@ -105,6 +128,14 @@ def main() -> int:
             first, rebal = samples["FIRST_TIME"], samples["REBALANCE"]
             first_run = run_flow(c, "FIRST_TIME", None, first)
             rebal_run = run_flow(c, "REBALANCE", "demo", rebal)
+            check(c.get("/ui/portfolio.js").status_code == 200, "GET /ui/portfolio.js 200")
+            check('id="file"' in html, '/ui contains id="file" (upload)')
+            for sample in ("rebalance.json", "rebalance.csv"):
+                payload = parse_sample(ROOT / "docs" / "samples" / sample)
+                if payload is None:
+                    print(f"skip upload sample {sample}: node not installed")
+                    continue
+                run_flow(c, "REBALANCE", "demo", payload, label=f"upload {sample}")
         browser = next((b for b in map(shutil.which, BROWSERS) if b), None) or next(
             (b for b in BROWSERS if Path(b).is_file()), None
         )
