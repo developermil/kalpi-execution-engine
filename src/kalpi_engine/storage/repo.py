@@ -4,6 +4,7 @@ Functions taking an AsyncSession run inside the caller's transaction; create_run
 """
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -13,7 +14,7 @@ from sqlalchemy import CursorResult, Select, and_, exists, func, or_, select, up
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from kalpi_engine.domain.enums import LegStatus, Mode, RunStatus
+from kalpi_engine.domain.enums import TERMINAL_RUN_STATUSES, LegStatus, Mode, RunStatus
 from kalpi_engine.domain.models import OrderIntent
 from kalpi_engine.storage.crypto import TokenCipher
 from kalpi_engine.storage.db import BrokerSessionRow, Event, Leg, Outbox, Run
@@ -167,6 +168,16 @@ async def update_run_unfenced(s: AsyncSession, run_id: str, **values: Any) -> bo
     return await _rowcount(s, update(Run).where(Run.id == run_id).values(**values)) == 1
 
 
+async def set_final_status(s: AsyncSession, run_id: str, status: RunStatus) -> bool:
+    """Post-finalise recompute by a recheck (§5.8): only touches runs that are already final."""
+    stmt = (
+        update(Run)
+        .where(Run.id == run_id, Run.status.in_(TERMINAL_RUN_STATUSES))
+        .values(status=status)
+    )
+    return await _rowcount(s, stmt) == 1
+
+
 # ---------- legs ----------
 
 
@@ -191,6 +202,22 @@ async def cas_leg(
             )
         )
     return await _rowcount(s, update(Leg).where(*conds).values(**values)) == 1
+
+
+async def due_rechecks(
+    s: AsyncSession, run_id: str, now: datetime, statuses: Sequence[LegStatus]
+) -> list[Leg]:
+    stmt = _fresh(
+        select(Leg)
+        .where(Leg.run_id == run_id, Leg.recheck_at <= now, Leg.status.in_(statuses))
+        .order_by(Leg.idx)
+    )
+    return list(await s.scalars(stmt))
+
+
+async def runs_with_due_rechecks(s: AsyncSession, now: datetime) -> list[str]:
+    stmt = select(Leg.run_id).where(Leg.recheck_at <= now).distinct()
+    return list(await s.scalars(stmt))
 
 
 # ---------- events ----------

@@ -49,6 +49,7 @@ class Faults:
     rate_limit_next: int = 0  # place_order raises RateLimited (nothing created)
     connect_error_next: int = 0  # place_order raises TransientError (nothing created)
     timeout_after_accept_next: int = 0  # order IS created, then AmbiguousSubmit is raised
+    timeout_before_accept_next: int = 0  # AmbiguousSubmit raised, order NOT created
     hide_from_tag_lookups: int = 0  # find_order_by_tag misses N times (late fill)
     reject_symbols: set[str] = field(default_factory=set)
     partial_fill: dict[str, int] = field(default_factory=dict)  # symbol -> qty that fills
@@ -135,6 +136,9 @@ class PaperBroker(BrokerAdapter):
         if f.rate_limit_next:
             f.rate_limit_next -= 1
             raise RateLimited("paper: injected 429", retry_after=0.0)
+        if f.timeout_before_accept_next:
+            f.timeout_before_accept_next -= 1
+            raise AmbiguousSubmit("paper: injected timeout, order never reached the book")
         if intent.symbol in f.reject_symbols:
             raise BrokerRejected(f"paper: injected reject for {intent.symbol}")
         await self.resolve_instrument(intent.exchange, intent.symbol)

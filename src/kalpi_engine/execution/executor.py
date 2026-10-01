@@ -1,27 +1,27 @@
 """Run executor core (SPEC §5 steps 2, 4, 7; D7, D9, D21).
 
 Per leg: CAS PLANNED->SUBMITTING is committed *before* place_order (write-ahead); only
-RETRY_SAFE errors retry; AMBIGUOUS -> UNKNOWN with a recheck, never resent. Sells finish
-(terminal or poll timeout) before any buy starts.
+RETRY_SAFE errors retry; AMBIGUOUS -> adopt by tag (3 lookups) or UNKNOWN, never resent.
+Sells finish (terminal or poll timeout) before any buy starts. AuthExpired stops placing (D32).
 
 Not here yet: lease claim/renew + fencing (B4c; writes pass fence=None and rely on the status
-CAS), tag reconciliation of AMBIGUOUS and the recheck sweep (B4b).
+CAS).
 """
 
 import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
-from typing import Any
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from kalpi_engine.brokers.base import BrokerAdapter, BrokerSession
 from kalpi_engine.domain.enums import LegStatus, OrderStatus, Phase, RunStatus
 from kalpi_engine.domain.errors import AmbiguousSubmit, AuthExpired, KalpiError
-from kalpi_engine.domain.models import BrokerOrderState, OrderIntent
+from kalpi_engine.domain.models import OrderIntent
 from kalpi_engine.domain.status import run_status, sell_failed
+from kalpi_engine.execution.legs import LegWriter, fill_values, reason_of
 from kalpi_engine.execution.limits import (
     RETRY_SAFE,
     Clock,
@@ -29,13 +29,13 @@ from kalpi_engine.execution.limits import (
     RetryPolicy,
     call_with_retry,
 )
+from kalpi_engine.execution.reconcile import Reconciler, next_recheck
 from kalpi_engine.notify.payload import build_payload
 from kalpi_engine.storage import repo
 from kalpi_engine.storage.db import Leg
 
 log = logging.getLogger(__name__)
 
-RECHECK_AFTER = timedelta(seconds=60)
 _TERMINAL = {OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.CANCELLED}
 
 
@@ -69,6 +69,16 @@ class Executor:
         self._limiters = limiters
         self._sem = asyncio.Semaphore(self.cfg.max_concurrency)
         self._stop_reason: str | None = None  # set on AuthExpired: stop placing
+        self.legs = LegWriter(sm, wall)
+        self.rec = Reconciler(
+            sm,
+            broker,
+            session,
+            limiters,
+            clock=clock,
+            wall=wall,
+            default_webhook_url=self.cfg.default_webhook_url,
+        )
 
     async def run(self, run_id: str) -> RunStatus:
         async with self.sm.begin() as s:
@@ -106,7 +116,7 @@ class Executor:
                 await repo.append_event(s, run_id, "barrier.sell_failures", payload, self.wall())
         if halt:
             for lg in buys:
-                await self._skip(lg, "SELL_FAILURE_HALT")
+                await self.legs.skip(lg, "SELL_FAILURE_HALT")
         else:
             await self._phase(buys, poll_timeout_s)
         return await self._finalise(run_id)
@@ -118,12 +128,12 @@ class Executor:
     async def _guarded(self, leg: Leg, poll_timeout_s: float) -> None:
         async with self._sem:
             if self._stop_reason is not None:
-                await self._skip(leg, self._stop_reason)
+                await self.legs.skip(leg, self._stop_reason)
                 return
             await self._leg(leg, poll_timeout_s)
 
     async def _leg(self, leg: Leg, poll_timeout_s: float) -> None:
-        if not await self._move(leg, LegStatus.PLANNED, LegStatus.SUBMITTING, "leg.submitting"):
+        if not await self.legs.move(leg, LegStatus.PLANNED, LegStatus.SUBMITTING, "leg.submitting"):
             return  # someone else owns this leg
         intent = OrderIntent(
             leg_id=leg.id,
@@ -144,29 +154,33 @@ class Executor:
                 policy=self.cfg.retry,
             )
         except RETRY_SAFE as e:  # the broker provably never accepted it
-            await self._move(
-                leg, LegStatus.SUBMITTING, LegStatus.FAILED, "leg.failed", reason=_reason(e)
+            await self.legs.move(
+                leg, LegStatus.SUBMITTING, LegStatus.FAILED, "leg.failed", reason=reason_of(e)
             )
             return
-        except AuthExpired as e:  # refused before acceptance; D32 mapping completes in B4b
+        except AuthExpired as e:  # 401 before acceptance: nothing was placed
             self._stop_reason = "AUTH_EXPIRED"
-            await self._move(
-                leg, LegStatus.SUBMITTING, LegStatus.FAILED, "leg.failed", reason=_reason(e)
+            await self.legs.move(
+                leg, LegStatus.SUBMITTING, LegStatus.FAILED, "leg.failed", reason=reason_of(e)
             )
             return
         except AmbiguousSubmit as e:
-            await self._unknown(leg, LegStatus.SUBMITTING, _reason(e))
+            adopted = await self._adopt_by_tag(leg, reason_of(e))
+            if adopted is None:
+                return
+            order_id = adopted
+            await self._poll(leg, order_id, poll_timeout_s)
             return
         except KalpiError as e:  # REJECTED class: validation / RMS / funds
-            await self._move(
-                leg, LegStatus.SUBMITTING, LegStatus.REJECTED, "leg.rejected", reason=_reason(e)
+            await self.legs.move(
+                leg, LegStatus.SUBMITTING, LegStatus.REJECTED, "leg.rejected", reason=reason_of(e)
             )
             return
         except Exception as e:  # unexpected after send: the order may exist (D9)
             log.exception("place_order crashed for leg %s", leg.id)
-            await self._unknown(leg, LegStatus.SUBMITTING, f"UNEXPECTED: {type(e).__name__}")
+            await self.legs.unknown(leg, LegStatus.SUBMITTING, f"UNEXPECTED: {type(e).__name__}")
             return
-        await self._move(
+        await self.legs.move(
             leg,
             LegStatus.SUBMITTING,
             LegStatus.SUBMITTED,
@@ -174,6 +188,31 @@ class Executor:
             broker_order_id=order_id,
         )
         await self._poll(leg, order_id, poll_timeout_s)
+
+    async def _adopt_by_tag(self, leg: Leg, reason: str) -> str | None:
+        """AMBIGUOUS (D9): look the tag up; adopt the order if found, else UNKNOWN. Never resend."""
+        try:
+            state = await self.rec.find_by_tag(leg.tag)
+        except AuthExpired:
+            self._stop_reason = "AUTH_EXPIRED"
+            await self.legs.unknown(leg, LegStatus.SUBMITTING, "AUTH_EXPIRED", recheck=False)
+            return None
+        except Exception as e:
+            await self.legs.unknown(
+                leg, LegStatus.SUBMITTING, f"{reason}; LOOKUP_ERROR: {reason_of(e)}"
+            )
+            return None
+        if state is None:
+            await self.legs.unknown(leg, LegStatus.SUBMITTING, reason)
+            return None
+        moved = await self.legs.move(
+            leg,
+            LegStatus.SUBMITTING,
+            LegStatus.SUBMITTED,
+            "leg.adopted",
+            broker_order_id=state.broker_order_id,
+        )
+        return state.broker_order_id if moved else None
 
     async def _poll(self, leg: Leg, order_id: str, poll_timeout_s: float) -> None:
         deadline = self.clock.now() + poll_timeout_s
@@ -186,55 +225,39 @@ class Executor:
                     clock=self.clock,
                     policy=self.cfg.retry,
                 )
+            except AuthExpired:  # D32: PARTIAL kept, otherwise UNKNOWN; rechecks need auth too
+                self._stop_reason = "AUTH_EXPIRED"
+                if current is LegStatus.PARTIAL:
+                    await self.legs.set_recheck(leg, current, None)
+                else:
+                    await self.legs.unknown(leg, current, "AUTH_EXPIRED", recheck=False)
+                return
             except Exception as e:  # order exists but we cannot see it: in doubt
-                await self._unknown(leg, current, f"POLL_ERROR: {_reason(e)}")
+                await self.legs.unknown(leg, current, f"POLL_ERROR: {reason_of(e)}")
                 return
             new = LegStatus(state.status.value)
             if new is not current:
-                values = _fill_values(state)
-                if not await self._move(leg, current, new, f"leg.{new.value.lower()}", **values):
+                values = fill_values(state)
+                if not await self.legs.move(
+                    leg, current, new, f"leg.{new.value.lower()}", **values
+                ):
                     return
                 current = new
             if state.status in _TERMINAL:
                 return
             if self.clock.now() >= deadline:  # leave OPEN/PARTIAL; never auto-cancel
-                await self._set_recheck(leg, current)
+                await self.legs.set_recheck(leg, current, next_recheck(self.wall()))
                 return
             await self.clock.sleep(self.cfg.poll_interval_s)
 
-    # --- state transitions ------------------------------------------------------------
-    async def _move(
-        self, leg: Leg, expected: LegStatus, new: LegStatus, event: str, **values: Any
-    ) -> bool:
-        payload = {"status": new.value} | {
-            k: v for k, v in values.items() if k in ("broker_order_id", "filled_qty", "reason")
-        }
-        async with self.sm.begin() as s:
-            ok = await repo.cas_leg(s, leg.id, expected, None, status=new, **values)
-            if ok:
-                await repo.append_event(s, leg.run_id, event, payload, self.wall(), leg_id=leg.id)
-        if not ok:
-            log.warning("leg %s CAS %s->%s lost", leg.id, expected, new)
-        return ok
-
-    async def _unknown(self, leg: Leg, expected: LegStatus, reason: str) -> None:
-        await self._move(
-            leg,
-            expected,
-            LegStatus.UNKNOWN,
-            "leg.unknown",
-            reason=reason,
-            recheck_at=self.wall() + RECHECK_AFTER,
-        )
-
-    async def _set_recheck(self, leg: Leg, current: LegStatus) -> None:
-        async with self.sm.begin() as s:
-            await repo.cas_leg(s, leg.id, current, None, recheck_at=self.wall() + RECHECK_AFTER)
-
-    async def _skip(self, leg: Leg, reason: str) -> None:
-        await self._move(leg, LegStatus.PLANNED, LegStatus.SKIPPED, "leg.skipped", reason=reason)
-
     async def _finalise(self, run_id: str) -> RunStatus:
+        if self._stop_reason is None:  # one last tag/order lookup for UNKNOWN legs (D21)
+            async with self.sm() as s:
+                unknown = [
+                    lg for lg in await repo.get_legs(s, run_id) if lg.status is LegStatus.UNKNOWN
+                ]
+            for lg in unknown:
+                await self.rec.recheck_leg(lg)
         async with self.sm.begin() as s:
             legs = await repo.get_legs(s, run_id)
             status = run_status(lg.status for lg in legs)
@@ -254,15 +277,3 @@ class Executor:
             # Same transaction as the final status (SPEC §5 step 8): never a run without its outbox.
             await repo.add_outbox(s, run_id, url, payload, self.wall())
         return status
-
-
-def _fill_values(state: BrokerOrderState) -> dict[str, Any]:
-    values: dict[str, Any] = {"filled_qty": state.filled_qty, "avg_price": state.avg_price}
-    if state.message:
-        values["reason"] = state.message
-    return values
-
-
-def _reason(e: BaseException) -> str:
-    code = getattr(e, "code", type(e).__name__)
-    return f"{code}: {e}"[:500]

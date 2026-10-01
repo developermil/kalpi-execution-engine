@@ -2,7 +2,7 @@
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -20,7 +20,7 @@ from kalpi_engine.execution.limits import LimiterRegistry, RetryPolicy
 from kalpi_engine.planner import plan
 from kalpi_engine.storage import repo
 from kalpi_engine.storage.db import Event, Leg, create_all, make_engine, make_sessionmaker
-from tests.engine.fakes import FakeClock
+from tests.engine.fakes import T0, FakeClock
 
 SM = async_sessionmaker[AsyncSession]
 
@@ -87,6 +87,7 @@ async def execute(
         session,
         LimiterRegistry(clock),
         clock=clock,
+        wall=lambda: T0 + timedelta(seconds=clock.now() - 1000.0),
         config=ExecConfig(poll_interval_s=1.0, retry=retry or RetryPolicy(max_attempts=4)),
     )
     status = await ex.run(run_id)
@@ -216,7 +217,8 @@ async def test_insufficient_funds_rejected(sm: SM) -> None:
 
 
 async def test_ambiguous_submit_marked_unknown_never_resent(sm: SM) -> None:
-    r = await execute(sm, "FIRST_TIME", [buy("TCS", 1)], faults=Faults(timeout_after_accept_next=1))
+    faults = Faults(timeout_before_accept_next=1)
+    r = await execute(sm, "FIRST_TIME", [buy("TCS", 1)], faults=faults)
     assert r.statuses() == {"TCS": LegStatus.UNKNOWN}
     assert r.broker.place_calls == 1
     assert r.status is RunStatus.COMPLETED_WITH_FAILURES
