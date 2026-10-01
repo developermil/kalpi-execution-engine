@@ -145,6 +145,12 @@
     "started": "2026-10-02T02:26+05:30",
     "status": "done"
   },
+  "E4": {
+    "closed": "2026-10-02T02:36+05:30",
+    "evidence": "fresh clone of origin/main (919a0a0) -> cp .env.example, README FERNET_KEY cmd, docker compose up --build -d: /healthz ok at 39s (warm Docker cache); forced --no-cache rebuild + up healthy in 44s; README curl demo reproduced: preview SELL TCS/BUY INFY/BUY HDFCBANK + OUTSIDE_MARKET_HOURS warning, run COMPLETED 3/3 FILLED, webhook SENT x1 (1 received), idempotent replay 200, /ui 200, /readyz ready, 401 without key; no code/doc fixes needed. Only deviation: host port 8000 was in use by the owner's running stack, so the clone mapped 18000:8000 (temp edit, not committed). Clone, volume and image removed",
+    "started": "2026-10-02T02:34+05:30",
+    "status": "done"
+  },
   "G0": {
     "closed": "2026-10-01T20:07+05:30",
     "evidence": "Row1 PASS: spike 5/5 FILLED via real port in 0.007s, port unchanged by A5. Row2 ADJUST x5 (blocking UNVERIFIED: fyers 3, upstox 3, zerodha 4, groww 4, angelone 5; none >6): F1 steps 2-3 recorded per broker in BROKERS.md triage and enforced by C1-C5 done_when (experimental=true, live_tested=false, SDK constants only, never wrap SDK place_order). Row3 ADJUST: elapsed H4:37 since first commit 15:31 (>H4:30): D1 cut to F12 minimal page, est 90->45m (D37). Verdict ADJUST, actions done (D22/D33)",
