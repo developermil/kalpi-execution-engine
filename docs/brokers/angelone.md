@@ -16,6 +16,17 @@ Base URL: https://apiconnect.angelone.in (SDK smartConnect.py: https://raw.githu
 12. **Errors** — Rate limit: text "Access denied because of exceeding access rate" (https://smartapi.angelone.in/smartapi/forum/post/14080); HTTP status/Retry-After UNVERIFIED. Auth expiry: errorcode AG8001 "Invalid Token" (https://smartapi.angelone.in/topic/589/error-ag8001); SDK calls session_expiry_hook on 403 TokenException. Reject: status "rejected" with text; AB4008 tag length. Envelope {status,message,errorcode,data} UNVERIFIED. Insufficient-funds shape UNVERIFIED.
 13. **Sandbox** — UNVERIFIED (none found).
 
+## Instrument master — verified by inspection (2026-10-01)
+Downloaded https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json (33 MB, a JSON array of 141,994 objects; all of them have the same 11 keys): `token, symbol, name, expiry, strike, lotsize, instrumenttype, exch_seg, tick_size, freeze_qty, is_cas_enabled` (all strings except the bool). SBIN example: NSE `{"token":"3045","symbol":"SBIN-EQ","name":"SBIN","instrumenttype":"","exch_seg":"NSE","tick_size":"5.000000","lotsize":"1"}`; BSE `token "500112", symbol "SBIN"` (no `-EQ` suffix on BSE).
+Cash equities have `instrumenttype ""`, and indices have `AMXIDX`. **`tick_size` is in paise** (5.0 = Rs 0.05). Resolver: NSE match `symbol == <SYM>-EQ`; BSE match `symbol == <SYM>`; send `symboltoken=token`. Cadence: still UNVERIFIED (HEAD gives no Last-Modified), so refresh daily (see below).
+
+## Defensive defaults (remaining BLOCKING items, DECISIONS D19)
+- **Holdings qty semantics**: sellable = max(0, `quantity` - `t1quantity` - `collateralquantity`). This may under-count and wrongly reject a sell, but it never oversells.
+- **ordertype/duration enums**: send only `MARKET`/`LIMIT`, `DAY`, `NORMAL`, `DELIVERY` (all seen in official SDK READMEs). Nothing else.
+- **Status vocab + partial**: open/trigger pending -> OPEN, complete -> FILLED, rejected -> REJECTED, cancelled -> CANCELLED. PARTIAL only when a filled-qty field (`filledshares`) is present and >0. Any other string becomes non-terminal and, at timeout, UNKNOWN. Never FILLED, never resubmitted.
+- **Rate limits**: orders 9/s (the lowest of 20/10/9), 500/min, 1000/hr; getHolding and getOrderBook 1/s. No per-day cap is assumed beyond these.
+- **Master cadence**: re-download if the cached copy is from before today's 08:00 IST.
+
 ## Gotchas
 - Doc table limits (20/s) are stale; use 9/s conservatively; holding/orderbook 1/s hits 429-like errors even at 1 rps (post 14080).
 - Orders must come from the static IP; "Invalid apiKey" reported for new static-IP apps (post 18243).

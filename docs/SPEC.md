@@ -70,12 +70,12 @@ V9 session exists and not expired (`SESSION_EXPIRED`, 401). V10 outside 09:15–
 - `BrokerOrderState{broker_order_id, status(OPEN|PARTIAL|FILLED|REJECTED|CANCELLED), filled_qty, avg_price?, message?}`
 - Run status: `CREATED -> RUNNING -> COMPLETED | COMPLETED_WITH_FAILURES | FAILED`
 - Leg status: `PLANNED -> SUBMITTING -> SUBMITTED -> OPEN|PARTIAL -> FILLED | REJECTED | CANCELLED | FAILED | UNKNOWN | SKIPPED`
-- Tag: `"K" + base32(sha1(run_id + ":" + leg_index))[:15]` (<=20 chars, alphanumeric)
+- Tag: `make_tag(run_id, leg_index, length)` = `"K" + base32(sha1(run_id + ":" + leg_index))[:length-1]`, alphanumeric; `length = min(16, meta.tag_max_len)`, must be 8..20 (Groww min 8). `BrokerMeta.tag_max_len: int` (default 20; per-broker values in BROKERS.md; unknown = shorter value, D19)
 
 ## 4. Adapter port (the whole contract a 6th broker implements)
 ```python
 class BrokerAdapter(ABC):
-    meta: BrokerMeta                      # id, name, auth_mode, credential_fields, rate_limits, requires_static_ip, daily_2fa
+    meta: BrokerMeta                      # id, name, auth_mode, credential_fields, rate_limits, requires_static_ip, daily_2fa, tag_max_len
     async def login_url(self, state: str) -> str: ...              # OAUTH_REDIRECT only
     async def create_session(self, params: dict) -> BrokerSession: ...   # callback params or credentials
     async def get_holdings(self, s: BrokerSession) -> list[Holding]: ...

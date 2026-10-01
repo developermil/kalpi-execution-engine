@@ -16,6 +16,16 @@ Research date 2026-10-01. Field-level items not confirmable from a fetched prima
 12. **Error shape + codes** — Shape `{"s":"error","code":<int>,"message":"..."}` (e.g. code -16 "Could not authenticate the user", from https://fyers.in/community/t/introducing-fyers-api-version-3-v3-0-0-a-major-update-for-improved-algo-trading/12193). -371 = appIdHash missing/invalid (community URL in item 1). Rate limit: -353 "API Limit exceeded per min" (https://fyers.in/community/t/order-status/12567) and "API limit exceeded per day" (code UNVERIFIED); HTTP status of 429 UNVERIFIED (may be 200/4xx with code). Reject and insufficient-funds shapes UNVERIFIED (orders likely accepted then rejected async; UNVERIFIED).
 13. **Sandbox** — UNVERIFIED (none found in any fetched primary source). Treat as unavailable; use Paper broker.
 
+## Instrument master — verified by inspection (2026-10-01)
+Downloaded https://public.fyers.in/sym_details/NSE_CM.csv (1.7 MB, 10,032 rows, `Last-Modified: Thu, 01 Oct 2026 02:13:56 GMT`). There is no header row, and every row has 21 comma-separated columns. Positions are verified; names are ours, from the values (SBIN row: `10100000003045,STATE BANK OF INDIA,0,1,0.05,INE062A01020,0915-1530|1815-1915:,2026-09-30,,NSE:SBIN-EQ,10,10,3045,SBIN,3045,-1.0,XX,10100000003045,None,1,3.7`).
+1 fyToken · 2 name · 3 instrument-type code (0=EQ) · 4 lot size · 5 tick (rupees) · 6 ISIN · 7 session times · 8 last-update date · 9 expiry (blank for cash) · 10 **ticker used in orders** (`NSE:SBIN-EQ`) · 11 exchange code (10=NSE) · 12 segment (10=CM) · 13 exchange token · 14 short symbol · 15 underlying token · 16 strike (-1.0) · 17 option type (XX) · 18 underlying fyToken · 19-21 unknown (`None` / `0|1` / float).
+Series suffixes seen in col 10 include EQ 2670, SG 4325, N0 1023, SM 469, BE 248. Resolver: build the key `NSE:<col 14>-EQ` and require an exact match in col 10; otherwise UNKNOWN_SYMBOL. Cadence: the date column and Last-Modified point to a daily rebuild (single observation).
+
+## Defensive defaults (remaining BLOCKING items, DECISIONS D19)
+- **Holdings field names**: parse only the field names seen in a recorded real response. If the quantity field can't be identified, `get_holdings` raises, the request is rejected and nothing is sent. Sellable = the smallest candidate quantity (T1 is never counted).
+- **orderTag length/charset/echo**: `tag_max_len=16`, alphanumeric only (shorter than any peer's documented max of 20). If the tag isn't echoed, `find_order_by_tag` returns None and the leg becomes UNKNOWN. Never resubmit.
+- **Numeric status vocabulary**: map only codes confirmed from SDK or recorded responses. Any other code becomes non-terminal and, at poll timeout, UNKNOWN. Never FILLED, never resubmitted.
+
 ## Gotchas
 - Daily re-login mandatory; no refresh-token automation post-2026-04-01 (the /validate-refresh-token endpoint still appears in older threads; do not rely on it).
 - Static IP must match the egress IP of the Docker host/NAT; Kalpi users each need own IP.

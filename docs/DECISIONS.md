@@ -21,6 +21,8 @@ Format: **Choice** · why · cost/trade-off · revisit if. Changing a decision =
 | D15 | Tests: **shared adapter contract suite** (respx mocks) + Paper broker with fault injection; live tests opt-in (`-m live`) | Only unit tests; only live tests |
 | D16 | **Paper broker is first-class** and selectable in UI/API | Hide it as a test double |
 | D17 | Regulatory awareness baked into adapter metadata (`requires_static_ip`, `daily_2fa`) and README | Ignore regulation |
+| D18 | **G0 counts BLOCKING UNVERIFIED items only** (token exchange, holdings qty, place-order + delivery code, status vocab, tag, rate limits, instrument master). Sandbox, pricing, MPP %, secondary error shapes, regulatory nuance and funds (`get_funds` may return None) are NON-BLOCKING | Count every UNVERIFIED cell (rewards vague notes, punishes honest ones) |
+| D19 | **Defensive mapping for unverified facts**: unknown status is never FILLED and never resubmitted (it becomes UNKNOWN); sellable qty = the most conservative field; conflicting rate limits mean we use the lowest; unknown tag limit means the shorter value | Optimistic guesses; block the adapter entirely |
 
 ## D1 — Broker integration approach (the one the reviewers will probe)
 - **Choice:** own thin adapters on `httpx`.

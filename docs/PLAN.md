@@ -22,8 +22,10 @@ Task graph lives in `docs/beads.toml` (use `python scripts/beads.py ready|show|c
 | Check | Pass | Adjust | Abort/escalate |
 |---|---|---|---|
 | A5 spike prints 5 FILLED legs via the real port | yes, <5 s | works but port needed changes -> update SPEC §4 then continue | cannot express Paper through the port -> redesign port before anything else |
-| BROKERS.md UNVERIFIED cells per broker | <=3 each | 4–6 for one broker -> apply F1 cascade to that broker | >=3 brokers with >6 -> F1 step 4 (flag experimental, tell human) |
+| BROKERS.md BLOCKING UNVERIFIED items per broker (D18) | <=3 each | 4–6 for one broker -> apply F1 cascade to that broker | >=3 brokers with >6 -> F1 step 4 (flag experimental, tell human) |
 | Elapsed since start | <=H4:30 | H4:30–6:00 -> cut D1 to minimal (F12) | >H6:00 -> drop S*, drop E1 detail, tell human |
+
+G0 verdict (2026-10-01, UNVERIFIED-items row): **ADJUST** for fyers (3 blocking), angelone (5) and groww (4). Apply F1 steps 2-3: wrap the official SDK only where that's cheaper; ship `experimental=true` with contract tests + README disclosure, and with the D19 defensive defaults, unless live-tested. Upstox (3) passes. Zerodha has 4 blocking items, which is in the Adjust band, but it was not retried (human decision); flagged. A5-spike and elapsed rows not measured here.
 
 **G1 Engine correct on Paper** (after B7)
 | Check | Pass | Adjust | Abort |

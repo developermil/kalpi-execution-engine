@@ -18,6 +18,12 @@ Envelope: success `{"status":"SUCCESS","payload":{...}}`; failure `{"status":"FA
 12. **Errors**: failure envelope with `error.code` `GA###`; specific codes for 429 / auth expiry / reject / insufficient funds UNVERIFIED (not found in fetched docs); 429 Retry-After header UNVERIFIED. https://groww.in/trade-api/docs/curl
 13. **Sandbox**: none mentioned in docs/landing page (treat as UNVERIFIED -> assume none). https://groww.in/trade-api
 
+## Defensive defaults (remaining BLOCKING items, DECISIONS D19)
+- **Sellable qty**: `demat_free_quantity` (the smallest field, excluding T1, pledged and locked), never `quantity`.
+- **Partial fills / OPEN, PENDING**: treat `filled_quantity` > 0 on a non-terminal status as PARTIAL. Map EXECUTED/COMPLETED -> FILLED. Map DELIVERY_AWAITED -> FILLED only when `filled_quantity == quantity`. Any status outside the annexure list (OPEN, PENDING, or new values) becomes non-terminal and, at timeout, UNKNOWN. Never FILLED, never resubmitted.
+- **Instrument CSV cadence**: re-download if the cached copy is from before today's 08:00 IST.
+- **Per-day order cap**: none documented; enforce 10/s and 250/min. A "limit" error is classified RateLimited and never auto-resubmitted after send.
+
 ## Gotchas
 - Token dies daily 06:00; approval-flow keys also need daily manual approval -> unattended refresh only plausible via TOTP flow.
 - Orders and status endpoints take `segment`; always pass CASH.
