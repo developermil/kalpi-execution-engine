@@ -151,6 +151,11 @@
     "started": "2026-10-02T02:34+05:30",
     "status": "done"
   },
+  "E5": {
+    "closed": "2026-10-02T03:36+05:30",
+    "evidence": "verifier agent (fresh context) audit of R1-R12: 0 MISSING; WEAK items R8 (compose port) fixed via APP_PORT, R10 (no upload) fixed by .json/.csv upload, R11 repo now public (verified), R12 submitter-judged; make check 392 passed, make itest 3 passed",
+    "status": "done"
+  },
   "G0": {
     "closed": "2026-10-01T20:07+05:30",
     "evidence": "Row1 PASS: spike 5/5 FILLED via real port in 0.007s, port unchanged by A5. Row2 ADJUST x5 (blocking UNVERIFIED: fyers 3, upstox 3, zerodha 4, groww 4, angelone 5; none >6): F1 steps 2-3 recorded per broker in BROKERS.md triage and enforced by C1-C5 done_when (experimental=true, live_tested=false, SDK constants only, never wrap SDK place_order). Row3 ADJUST: elapsed H4:37 since first commit 15:31 (>H4:30): D1 cut to F12 minimal page, est 90->45m (D37). Verdict ADJUST, actions done (D22/D33)",
@@ -169,6 +174,11 @@
   "G3": {
     "closed": "2026-10-02T02:06+05:30",
     "evidence": "PASS: human manual click-through in Chrome on Paper (reported by user): FIRST_TIME + REBALANCE completed, all legs FILLED, notification JSON shown, 0 console errors; automated: ui_smoke.py rc=0 (both flows COMPLETED); cosmetic fixes: UI 401 message + default API key matches .env.example; first-run setup added to LIMITATIONS",
+    "status": "done"
+  },
+  "G4": {
+    "closed": "2026-10-02T03:36+05:30",
+    "evidence": "PASS: public repo https://github.com/developermil/kalpi-execution-engine (gh visibility PUBLIC; owner confirmed incognito render + own fresh clone); unauthenticated clone at 3081e11 healthy in 26s, README demo run COMPLETED 3/3 FILLED + webhook SENT, /ui and /ui/portfolio.js 200 (E4 earlier 39s); make check 392 passed, make itest 3 passed; audit 0 MISSING",
     "status": "done"
   }
 }
