@@ -35,6 +35,12 @@
     "started": "2026-10-01T20:12+05:30",
     "status": "done"
   },
+  "B2": {
+    "closed": "2026-10-01T20:20+05:30",
+    "evidence": "tests/unit/test_storage.py 16 passed on sqlite: dup (user,key) same hash -> same run, diff hash -> IDEMPOTENCY_KEY_REUSED, concurrent dup insert -> 1 run; 2 concurrent claim_lease -> exactly 1 wins (5/5 reruns); expired lease reclaimable; non-owner renew 0 rows; former-owner fenced leg+run update 0 rows; 2nd CAS 0 rows; event seq 1,2,3,4 per run; Fernet round-trip, ciphertext!=plaintext; token absent from caplog. create_all at startup + /readyz SELECT 1; make check 155 passed, mypy strict storage clean",
+    "started": "2026-10-01T20:16+05:30",
+    "status": "done"
+  },
   "G0": {
     "closed": "2026-10-01T20:07+05:30",
     "evidence": "Row1 PASS: spike 5/5 FILLED via real port in 0.007s, port unchanged by A5. Row2 ADJUST x5 (blocking UNVERIFIED: fyers 3, upstox 3, zerodha 4, groww 4, angelone 5; none >6): F1 steps 2-3 recorded per broker in BROKERS.md triage and enforced by C1-C5 done_when (experimental=true, live_tested=false, SDK constants only, never wrap SDK place_order). Row3 ADJUST: elapsed H4:37 since first commit 15:31 (>H4:30): D1 cut to F12 minimal page, est 90->45m (D37). Verdict ADJUST, actions done (D22/D33)",
