@@ -5,7 +5,7 @@ RETRY_SAFE errors retry; AMBIGUOUS -> UNKNOWN with a recheck, never resent. Sell
 (terminal or poll timeout) before any buy starts.
 
 Not here yet: lease claim/renew + fencing (B4c; writes pass fence=None and rely on the status
-CAS), tag reconciliation of AMBIGUOUS and the recheck sweep (B4b), notifications (B5).
+CAS), tag reconciliation of AMBIGUOUS and the recheck sweep (B4b).
 """
 
 import asyncio
@@ -29,6 +29,7 @@ from kalpi_engine.execution.limits import (
     RetryPolicy,
     call_with_retry,
 )
+from kalpi_engine.notify.payload import build_payload
 from kalpi_engine.storage import repo
 from kalpi_engine.storage.db import Leg
 
@@ -43,6 +44,7 @@ class ExecConfig:
     poll_interval_s: float = 1.0
     max_concurrency: int = 5
     retry: RetryPolicy = field(default_factory=RetryPolicy)
+    default_webhook_url: str | None = None  # None -> console sink
 
 
 def _utcnow() -> datetime:
@@ -240,9 +242,17 @@ class Executor:
             counts: dict[str, int] = {}
             for lg in legs:
                 counts[lg.status.value] = counts.get(lg.status.value, 0) + 1
-            await repo.append_event(
+            seq = await repo.append_event(
                 s, run_id, "run.finished", {"status": status.value, "legs": counts}, self.wall()
             )
+            run = await repo.get_run(s, run_id)
+            assert run is not None
+            payload = build_payload(
+                run, legs, broker=self.broker.meta.id, event="execution.completed", seq=seq
+            )
+            url = run.options_json.get("webhook_url") or self.cfg.default_webhook_url or None
+            # Same transaction as the final status (SPEC §5 step 8): never a run without its outbox.
+            await repo.add_outbox(s, run_id, url, payload, self.wall())
         return status
 
 
