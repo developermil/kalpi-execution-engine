@@ -6,6 +6,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+import respx
 
 from kalpi_engine import brokers
 from kalpi_engine.brokers.registry import discover
@@ -92,3 +93,27 @@ async def test_signing_broker_needs_checksum_vectors(dummy_broker: ModuleType) -
     assert missing_hooks(broken) == ["checksum_vectors"]
     with pytest.raises(pytest.fail.Exception, match="checksum_vectors"):
         await CASES["checksum"](broken)
+
+
+def test_dummy_broker_listed_by_api_without_core_edits(
+    dummy_broker: ModuleType, tmp_path: Path
+) -> None:
+    from cryptography.fernet import Fernet
+    from fastapi.testclient import TestClient
+
+    from kalpi_engine.brokers.registry import Registry
+    from kalpi_engine.config import Settings
+    from kalpi_engine.main import create_app
+
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'k.db'}",
+        fernet_key=Fernet.generate_key().decode(),  # type: ignore[arg-type]
+        api_keys="u1:k1",  # type: ignore[arg-type]
+        webhook_secret="whsec",  # type: ignore[arg-type]
+        default_webhook_url="",
+    )
+    # Real-broker startup() fetches are blocked: unmocked requests raise and are only logged.
+    with respx.mock(), TestClient(create_app(settings, Registry(discover()))) as client:
+        rows = {b["id"]: b for b in client.get("/v1/brokers").json()}
+    assert {"dummy", "paper", "zerodha", "upstox", "fyers", "angelone", "groww"} <= set(rows)
+    assert rows["dummy"]["auth_mode"] == "OAUTH_REDIRECT" and rows["dummy"]["experimental"]

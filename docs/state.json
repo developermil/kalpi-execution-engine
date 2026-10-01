@@ -115,6 +115,12 @@
     "evidence": "contract suite 12 cases green for groww (12 passed, 105 deselected in 9.52s); src/kalpi_engine/brokers/groww.py 197 LOC; SDK/to_thread grep hits=0; experimental=true live_tested=false; UNVERIFIED items marked in comments; make check 363 passed (full tree)",
     "status": "done"
   },
+  "C6": {
+    "closed": "2026-10-02T01:09+05:30",
+    "evidence": "dummy 6th broker passes 12 contract cases + listed in GET /v1/brokers alongside paper+5 real (new test); proof = 1 file tests/contract/_dummy/brokers/dummy.py, 66 code lines (96 physical incl imports/blanks; trimmed from 120), 0 files edited under src/brokers; docs/ADDING_A_BROKER.md; contract 118 passed; make check 366 passed",
+    "started": "2026-10-02T01:00+05:30",
+    "status": "done"
+  },
   "E2": {
     "closed": "2026-10-01T23:33+05:30",
     "evidence": "make itest rc=0 x3 on fresh compose stack (down -v first): 3 passed in ~5-9s - FIRST_TIME 2 legs FILLED + signed webhook received at /mock/webhook; REBALANCE SELL,SELL->BUY all FILLED, no run.resumed; dup Idempotency-Key 202 then 200 same run_id, diff body 422 IDEMPOTENCY_KEY_REUSED; Postgres: 1 runs row per key, raw duplicate INSERT rejected by unique constraint. Found+fixed event-seq race on Postgres (D44; was 115s stall). make check 258 passed",
