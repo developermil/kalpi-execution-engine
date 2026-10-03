@@ -1,4 +1,4 @@
-# Kalpi Portfolio Trade Execution Engine
+# Portfolio Trade Execution Engine
 
 FastAPI service that takes an explicit portfolio instruction set (SELL / BUY / REBALANCE),
 connects to the user's broker, executes the orders in one call, and sends a webhook summarising
